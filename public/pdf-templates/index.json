@@ -1,0 +1,75 @@
+[
+  {
+    "id": "llenar-datos",
+    "name": "Plantilla Nuevo - A4",
+    "description": "Plantilla base desde la carpeta pdf-templates",
+    "category": "recategorizacion",
+    "template": "/pdf-templates/Llenar-Datos.pdf",
+    "preview": ""
+  },
+  {
+    "id": "reca-aiia",
+    "name": "Plantilla Recategorización - AIIA",
+    "description": "Plantilla base desde la carpeta pdf-templates",
+    "category": "recategorizacion",
+    "template": "/pdf-templates/RECA-AIIABUENO.pdf",
+    "preview": ""
+  },
+  {
+    "id": "llenar-datos2",
+    "name": "Plantilla Recategorización - AIIB",
+    "description": "Plantilla base desde la carpeta pdf-templates",
+    "category": "recategorizacion",
+    "template": "/pdf-templates/RECA-AIIB.pdf",
+    "preview": ""
+  }
+  ,
+  {
+    "id": "actualizacion-transporte-mercancias",
+    "name": "Actualización de Transporte de Mercancías",
+    "description": "Plantilla de actualización para transporte de mercancías",
+    "category": "actualizacion",
+    "template": "/pdf-templates/ACTUALIZACIONDETRANSPORTEDEMERCANCIAS.pdf",
+    "preview": ""
+  },
+  {
+    "id": "actualizacion-transporte-personas",
+    "name": "Actualización de Transporte de Personas",
+    "description": "Actualización de la normativa de transporte y tránsito para los conductores de servicio de transporte terrestre - mercancía",
+    "category": "actualizacion",
+    "template": "/pdf-templates/ACTUALIZACIONTRANSPPERSONAS.pdf",
+    "preview": ""
+  },
+  {
+    "id": "cambiemos-de-actitud",
+    "name": "Cambiemos de Actitud",
+    "description": "Plantilla general",
+    "category": "nuevo",
+    "template": "/pdf-templates/CAMBIEMOSDEACTITUD.pdf",
+    "preview": ""
+  },
+  {
+    "id": "motos-biiic",
+    "name": "Motos BIIIC",
+    "description": "Plantilla general",
+    "category": "nuevo",
+    "template": "/pdf-templates/MOTOS-BIIIC.pdf",
+    "preview": ""
+  },
+  {
+    "id": "reca-aiib-space",
+    "name": "Recategorización AIIB",
+    "description": "Plantilla de recategorización AIIB",
+    "category": "recategorizacion",
+    "template": "/pdf-templates/RECA-AIIB.pdf",
+    "preview": ""
+  },
+  {
+    "id": "reca-aiib-iiic",
+    "name": "Recategorización AIIB - AIIIC",
+    "description": "Plantilla de recategorización AIIB a AIIIC",
+    "category": "recategorizacion",
+    "template": "/pdf-templates/RECA-AIIB-AIIIC.pdf",
+    "preview": ""
+  }
+]
