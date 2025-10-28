@@ -1,219 +1,385 @@
 import { useState, useCallback } from 'react';
-import { Upload, Camera, Download, Printer, FileText, CheckCircle, AlertCircle } from 'lucide-react';
-import PDFUploader from './components/PDFUploader';
-import WebcamCapture from './components/WebcamCapture';
+import { Download, Printer, FileText, CheckCircle, AlertCircle, Menu } from 'lucide-react';
 import PDFPreview from './components/PDFPreview';
-import WordDocumentSelector from './components/WordDocumentSelector';
-import WordDocumentEditor from './components/WordDocumentEditor';
-import WordTemplateUploader from './components/WordTemplateUploader';
 import PDFTemplateEditor from './components/PDFTemplateEditor';
 import PDFTemplateSelector from './components/PDFTemplateSelector';
-import { insertImageInPDF } from './utils/pdfUtils';
-import { convertWordContentToPDF, parseWordContent } from './utils/wordToPdfUtils';
+import ConstanciaUploader from './components/ConstanciaUploader';
+import Sidebar from './components/Sidebar';
 
 interface AppState {
-  step: 'upload' | 'capture' | 'preview' | 'complete' | 'word-select' | 'word-edit' | 'word-upload' | 'pdf-template' | 'pdf-template-select';
+  step: 'upload' | 'capture' | 'preview' | 'complete' | 'pdf-template' | 'pdf-template-select' | 'constancia-upload';
   pdfFile: File | null;
   pdfArrayBuffer: ArrayBuffer | null;
   capturedImage: string | null;
   processedPDF: Uint8Array | null;
-  selectedWordDocument: any | null;
-  editedWordContent: string | null;
-  uploadedWordTemplate: File | null;
   templatePdfBytes: Uint8Array | null;
   selectedPDFTemplate: any | null;
+  formData: { apellidos?: string; nombres?: string } | null;
+  uploadedConstanciaPDF: File | null;
+  showDownloadConfirmation: boolean;
+  showPrintConfirmation: boolean;
   isProcessing: boolean;
+  constanciaLoaded: boolean;
   error: string | null;
+  sidebarOpen: boolean;
+  sidebarCollapsed: boolean;
 }
 
 function App() {
   const [state, setState] = useState<AppState>({
-    step: 'upload',
+    step: 'pdf-template-select',
     pdfFile: null,
     pdfArrayBuffer: null,
     capturedImage: null,
     processedPDF: null,
-    selectedWordDocument: null,
-    editedWordContent: null,
-    uploadedWordTemplate: null,
     templatePdfBytes: null,
     selectedPDFTemplate: null,
+    formData: null,
+    uploadedConstanciaPDF: null,
+    showDownloadConfirmation: false,
+    showPrintConfirmation: false,
     isProcessing: false,
+    constanciaLoaded: false,
     error: null,
+    sidebarOpen: false,
+    sidebarCollapsed: false,
   });
 
-  const handlePDFUpload = useCallback(async (file: File, arrayBuffer: ArrayBuffer) => {
-    setState(prev => ({
-      ...prev,
-      pdfFile: file,
-      pdfArrayBuffer: arrayBuffer,
-      step: 'capture',
-      error: null,
-    }));
+
+  const toggleSidebar = useCallback(() => {
+    setState(prev => ({ ...prev, sidebarOpen: !prev.sidebarOpen }));
   }, []);
 
-  const handleImageCapture = useCallback(async (imageDataUrl: string) => {
-    setState(prev => ({
-      ...prev,
-      capturedImage: imageDataUrl,
-      isProcessing: true,
-      error: null,
-    }));
+  const handleNavigate = useCallback((step: string) => {
+    setState(prev => ({ ...prev, step: step as any, sidebarOpen: false }));
+  }, []);
 
-    try {
-      if (state.pdfArrayBuffer) {
-        // Process with existing PDF
-        const processedPDF = await insertImageInPDF(state.pdfArrayBuffer, imageDataUrl);
-        
-        setState(prev => ({
+  const toggleSidebarCollapse = useCallback(() => {
+    setState(prev => ({ ...prev, sidebarCollapsed: !prev.sidebarCollapsed }));
+  }, []);
+
+  // Allow changing the captured image before any processing begins
+  const updateCapturedImageIfAllowed = useCallback((imageDataUrl: string) => {
+    setState(prev => {
+      const processingStarted = !!prev.processedPDF || prev.isProcessing || prev.constanciaLoaded;
+      if (processingStarted) {
+        return {
           ...prev,
-          processedPDF,
-          step: 'preview',
-          isProcessing: false,
-        }));
-      } else {
-        // No PDF loaded, show message to upload PDF first
-        setState(prev => ({
-          ...prev,
-          isProcessing: false,
-          error: 'Por favor, carga un PDF primero o usa los documentos precargados.',
-        }));
+          error: 'No se puede cambiar la foto después de iniciar el proceso. Reinicia para reemplazarla.'
+        };
       }
-    } catch (error) {
-      console.error('Error processing PDF:', error);
-      setState(prev => ({
-        ...prev,
-        isProcessing: false,
-        error: 'Error al procesar el PDF. Por favor, intenta nuevamente.',
-      }));
+      // Siempre reemplazar la foto anterior con la nueva
+      return { ...prev, capturedImage: imageDataUrl, error: null };
+    });
+  }, []);
+
+  const downloadPdfBytes = useCallback((bytes: Uint8Array, withPhoto: boolean) => {
+    const blob = new Blob([new Uint8Array(bytes)], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    let fileName = 'Documento';
+    if (state.formData?.apellidos && state.formData?.nombres) {
+      fileName = `${state.formData.apellidos} ${state.formData.nombres}${withPhoto ? '(Con foto)' : ''}`;
+    } else if (state.formData?.apellidos) {
+      fileName = `${state.formData.apellidos}${withPhoto ? '(Con foto)' : ''}`;
+    } else if (state.formData?.nombres) {
+      fileName = `${state.formData.nombres}${withPhoto ? '(Con foto)' : ''}`;
+    } else {
+      fileName = withPhoto ? 'Documento(Con foto)' : 'Documento';
     }
-  }, [state.pdfArrayBuffer]);
+    link.download = `${fileName}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [state.formData]);
 
-  const handleWordDocumentSelect = useCallback((document: any) => {
-    setState(prev => ({
-      ...prev,
-      selectedWordDocument: document,
-      step: 'word-edit',
-      error: null,
-    }));
-  }, []);
-
-  const handleWordDocumentEdit = useCallback((document: any) => {
-    setState(prev => ({
-      ...prev,
-      selectedWordDocument: document,
-      step: 'word-edit',
-      error: null,
-    }));
-  }, []);
-
-  const handleWordContentSave = useCallback((content: string) => {
-    setState(prev => ({
-      ...prev,
-      editedWordContent: content,
-    }));
-  }, []);
-
-  const handleWordToPDF = useCallback(async (content: string) => {
-    if (!state.selectedWordDocument) return;
-
-    setState(prev => ({
-      ...prev,
-      isProcessing: true,
-      error: null,
-    }));
-
+  const openPdfInNewTab = useCallback((bytes: Uint8Array) => {
     try {
-      const wordContent = parseWordContent(content, state.selectedWordDocument.name);
-      const pdfBytes = await convertWordContentToPDF(wordContent, state.capturedImage || undefined);
-      
-      setState(prev => ({
-        ...prev,
-        processedPDF: pdfBytes,
-        step: 'preview',
-        isProcessing: false,
-      }));
-    } catch (error) {
-      console.error('Error converting Word to PDF:', error);
-      setState(prev => ({
-        ...prev,
-        isProcessing: false,
-        error: 'Error al convertir el documento a PDF. Por favor, intenta nuevamente.',
-      }));
-    }
-  }, [state.selectedWordDocument, state.capturedImage]);
+      const blob = new Blob([new Uint8Array(bytes)], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, '_blank');
+      if (!win) {
+        // Fallback: if popup blocked, trigger a download
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'VistaPrevia.pdf';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+      // No revocar inmediatamente para no romper la pestaña abierta
+      // El navegador liberará el objeto al cerrar la pestaña.
+    } catch (_) {}
+  }, []);
+
 
   const handleDownload = useCallback(() => {
-    if (!state.processedPDF || !state.pdfFile) return;
+    if (!state.processedPDF) return;
 
     const copy = new Uint8Array(state.processedPDF);
     const blob = new Blob([copy], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `${state.pdfFile.name.replace('.pdf', '')}_con_foto.pdf`;
+    
+    // Generar nombre del archivo basado en los datos del formulario
+    let fileName = 'Documento';
+    if (state.formData?.apellidos && state.formData?.nombres) {
+      fileName = `${state.formData.apellidos} ${state.formData.nombres}(Con foto)`;
+    } else if (state.formData?.apellidos) {
+      fileName = `${state.formData.apellidos}(Con foto)`;
+    } else if (state.formData?.nombres) {
+      fileName = `${state.formData.nombres}(Con foto)`;
+    } else {
+      fileName = 'Documento(Con foto)';
+    }
+    
+    link.download = `${fileName}.pdf`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    
-    setState(prev => ({ ...prev, step: 'complete' }));
-  }, [state.processedPDF, state.pdfFile]);
+  }, [state.processedPDF, state.formData]);
 
-  const handlePrint = useCallback(() => {
-    if (!state.processedPDF) return;
+  const handleDownloadWithConfirmation = useCallback(() => {
+    setState(prev => ({ ...prev, showDownloadConfirmation: true }));
+  }, []);
 
-    const copy = new Uint8Array(state.processedPDF);
-    const blob = new Blob([copy], { type: 'application/pdf' });
-    const url = URL.createObjectURL(blob);
-    const printWindow = window.open(url, '_blank');
-    
-    if (printWindow) {
-      printWindow.onload = () => {
-        printWindow.print();
-        setState(prev => ({ ...prev, step: 'complete' }));
-      };
+  const confirmDownload = useCallback(() => {
+    handleDownload();
+    setState(prev => ({ ...prev, showDownloadConfirmation: false }));
+  }, [handleDownload]);
+
+  const handlePrintWithConfirmation = useCallback(() => {
+    setState(prev => ({ ...prev, showPrintConfirmation: true }));
+  }, []);
+
+  const confirmPrint = useCallback(() => {
+    if (state.processedPDF) {
+      const copy = new Uint8Array(state.processedPDF);
+      const blob = new Blob([copy], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      
+      // Abrir en nueva ventana para imprimir
+      const printWindow = window.open(url, '_blank');
+      
+      if (printWindow) {
+        printWindow.onload = () => {
+          printWindow.print();
+          // No cerrar automáticamente - dejar que el usuario decida
+        };
+      } else {
+        // Si no se puede abrir ventana nueva, usar iframe como fallback
+        const iframe = document.createElement('iframe');
+        iframe.style.display = 'none';
+        iframe.src = url;
+        document.body.appendChild(iframe);
+        iframe.onload = () => {
+          iframe.contentWindow?.print();
+          // No cerrar automáticamente - dejar que el usuario decida
+        };
+      }
     }
+    setState(prev => ({ ...prev, showPrintConfirmation: false }));
   }, [state.processedPDF]);
 
-  const resetProcess = useCallback(() => {
+
+  const handleConstanciaPDFUpload = useCallback(async (file: File) => {
+    try {
+      setState(prev => ({ ...prev, isProcessing: true, error: null }));
+      
+      
+      // Verificar que sea un PDF
+      if (file.type !== 'application/pdf') {
+        throw new Error('El archivo no es un PDF válido');
+      }
+      
+      // Leer el archivo PDF
+      const arrayBuffer = await file.arrayBuffer();
+      
+      // Primero intentar cargar el PDF sin modificar para verificar que es válido
+      const { PDFDocument } = await import('pdf-lib');
+      const pdfDoc = await PDFDocument.load(arrayBuffer);
+      
+      // Procesar el PDF con la foto insertada
+      if (state.capturedImage) {
+        
+        const pages = pdfDoc.getPages();
+        const firstPage = pages[0];
+        
+        try {
+          // Convertir la imagen capturada a formato compatible
+          
+          const imageResponse = await fetch(state.capturedImage);
+          if (!imageResponse.ok) {
+            throw new Error('Error al cargar la imagen capturada');
+          }
+          const imageBytes = await imageResponse.arrayBuffer();
+          
+          // Verificar que la imagen no esté vacía
+          if (imageBytes.byteLength === 0) {
+            throw new Error('La imagen capturada está vacía');
+          }
+          
+          // Intentar embed como PNG primero, luego como JPEG si falla
+          let image;
+          try {
+            // Verificar si es PNG o JPEG basado en los primeros bytes
+            const uint8Array = new Uint8Array(imageBytes);
+            const isPNG = uint8Array[0] === 0x89 && uint8Array[1] === 0x50 && uint8Array[2] === 0x4E && uint8Array[3] === 0x47;
+            const isJPEG = uint8Array[0] === 0xFF && uint8Array[1] === 0xD8;
+            
+            
+            if (isPNG) {
+              image = await pdfDoc.embedPng(imageBytes);
+            } else if (isJPEG) {
+              image = await pdfDoc.embedJpg(imageBytes);
+            } else {
+              // Si no se puede determinar, intentar PNG primero
+              try {
+                image = await pdfDoc.embedPng(imageBytes);
+              } catch (pngError) {
+                image = await pdfDoc.embedJpg(imageBytes);
+              }
+            }
+          } catch (embedError) {
+            console.error('Error embebiendo imagen:', embedError);
+            throw new Error('No se pudo procesar la imagen capturada');
+          }
+          
+          // Obtener las dimensiones de la página para posicionar correctamente
+          const pageWidth = firstPage.getWidth();
+          const pageHeight = firstPage.getHeight();
+          
+          // Insertar la imagen en el PDF manteniendo la proporción original
+          // Obtener las dimensiones originales de la imagen
+          const originalWidth = image.width;
+          const originalHeight = image.height;
+          
+          // Calcular el factor de escala para que la imagen sea más grande pero mantenga proporción
+          const maxWidth = 120;  // Ancho máximo deseado
+          const maxHeight = 120; // Alto máximo deseado
+          
+          const scaleX = maxWidth / originalWidth;
+          const scaleY = maxHeight / originalHeight;
+          const scale = Math.min(scaleX, scaleY); // Usar el menor para mantener proporción
+          
+          const imageWidth = originalWidth * scale;
+          const imageHeight = originalHeight * scale;
+          
+          // Posicionar más a la derecha (esquina superior derecha)
+          const x = pageWidth - imageWidth - 80; // 50 puntos desde el borde derecho
+          const y = pageHeight - imageHeight - 114; // 100 puntos desde la parte superior
+          
+          
+          firstPage.drawImage(image, {
+            x: x,
+            y: y,
+            width: imageWidth,
+            height: imageHeight,
+          });
+          
+          // Guardar el PDF modificado
+          const modifiedPdfBytes = await pdfDoc.save();
+          
+          setState(prev => ({
+            ...prev,
+            uploadedConstanciaPDF: file,
+            pdfArrayBuffer: modifiedPdfBytes.buffer as ArrayBuffer,
+            isProcessing: false,
+            constanciaLoaded: true,
+            error: null,
+          }));
+          // Abrir automáticamente una nueva ventana con la vista previa
+          try {
+            openPdfInNewTab(new Uint8Array(modifiedPdfBytes));
+          } catch (_) {}
+        } catch (imageError) {
+          // Si hay error con la imagen, guardar el PDF original
+          setState(prev => ({
+            ...prev,
+            uploadedConstanciaPDF: file,
+            pdfArrayBuffer: arrayBuffer,
+            isProcessing: false,
+            constanciaLoaded: true,
+            error: null,
+          }));
+          // Abrir automáticamente el PDF original (sin foto) como fallback
+          try {
+            openPdfInNewTab(new Uint8Array(arrayBuffer));
+          } catch (_) {}
+        }
+      } else {
+        // Si no hay imagen capturada, guardar el PDF original
+        setState(prev => ({
+          ...prev,
+          uploadedConstanciaPDF: file,
+          pdfArrayBuffer: arrayBuffer,
+          isProcessing: false,
+          constanciaLoaded: true,
+          error: null,
+        }));
+        // Abrir automáticamente el PDF original
+        try {
+          openPdfInNewTab(new Uint8Array(arrayBuffer));
+        } catch (_) {}
+      }
+    } catch (error) {
+      setState(prev => ({
+        ...prev,
+        isProcessing: false,
+        error: `Error al procesar el PDF de constancia: ${error instanceof Error ? error.message : 'Error desconocido'}`,
+      }));
+    }
+  }, [state.capturedImage]);
+
+
+  // Reset completo - para procesar otro alumno o nueva constancia
+  const resetAllData = useCallback(() => {
+    // Limpiar localStorage si es necesario
+    try {
+      localStorage.removeItem('pdfEditor:default:textCollapsed');
+      localStorage.removeItem('pdfEditor:default:imagesCollapsed');
+      localStorage.removeItem('pdfEditor:default:textFields');
+      localStorage.removeItem('pdfEditor:default:imageFields');
+      localStorage.removeItem('pdfEditor:default:editableFields');
+      localStorage.removeItem('pdfEditor:default:imageFields');
+      
+      // Limpiar todos los datos del editor de plantillas
+      const keys = Object.keys(localStorage);
+      keys.forEach(key => {
+        if (key.startsWith('pdfEditor:')) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch (error) {
+      // Error silencioso al limpiar localStorage
+    }
+    
     setState({
-      step: 'upload',
+      step: 'pdf-template-select',
       pdfFile: null,
       pdfArrayBuffer: null,
       capturedImage: null,
       processedPDF: null,
-      selectedWordDocument: null,
-      editedWordContent: null,
-      uploadedWordTemplate: null,
       templatePdfBytes: null,
       selectedPDFTemplate: null,
+      formData: null,
+      uploadedConstanciaPDF: null,
+      showDownloadConfirmation: false,
+      showPrintConfirmation: false,
       isProcessing: false,
+      constanciaLoaded: false,
       error: null,
+      sidebarOpen: false,
+      sidebarCollapsed: false,
     });
   }, []);
 
-  // Removed unused goToWordDocuments
-
-  // goToWordUpload removido (no se usa)
-
-  const handleWordTemplateUpload = useCallback((file: File) => {
-    setState(prev => ({
-      ...prev,
-      uploadedWordTemplate: file,
-      selectedWordDocument: {
-        id: 'uploaded',
-        name: file.name.replace('.docx', '').replace('.doc', ''),
-        description: 'Plantilla personalizada subida por el usuario',
-        category: 'personalizado',
-        template: file
-      },
-      step: 'word-edit',
-      error: null,
-    }));
-  }, []);
-
-  const goToPDFTemplate = useCallback(() => {
+  // Reset parcial - solo volver al inicio sin limpiar datos del formulario
+  const resetProcess = useCallback(() => {
     setState(prev => ({
       ...prev,
       step: 'pdf-template-select',
@@ -221,7 +387,9 @@ function App() {
     }));
   }, []);
 
-  const handlePDFTemplateSelect = useCallback(async (template: any) => {
+
+
+  const handlePDFTemplateSelect = useCallback(async (template: any, capturedImage?: string) => {
     try {
       // Cargar la plantilla PDF (rutas públicas desde /public se sirven desde /)
       const url = encodeURI(template.template);
@@ -245,6 +413,7 @@ function App() {
         ...prev,
         selectedPDFTemplate: template,
         templatePdfBytes: bytes,
+        capturedImage: capturedImage || null,
         step: 'pdf-template',
         error: null,
       }));
@@ -257,10 +426,12 @@ function App() {
     }
   }, []);
 
-  const handlePDFTemplateComplete = useCallback((editedPdfBytes: Uint8Array) => {
+
+  const handlePDFTemplateComplete = useCallback((editedPdfBytes: Uint8Array, formData?: { apellidos?: string; nombres?: string }) => {
     setState(prev => ({
       ...prev,
       processedPDF: editedPdfBytes,
+      formData: formData || null,
       step: 'preview',
       error: null,
     }));
@@ -269,72 +440,136 @@ function App() {
   const goBack = useCallback(() => {
     setState(prev => {
       const current = prev.step;
-      if (current === 'upload') return prev;
-      if (current === 'capture') return { ...prev, step: 'upload' };
+      if (current === 'pdf-template-select') return prev;
+      if (current === 'pdf-template') return { ...prev, step: 'pdf-template-select', capturedImage: prev.capturedImage };
       if (current === 'preview') {
-        if (prev.selectedPDFTemplate) return { ...prev, step: 'pdf-template' };
-        if (prev.selectedWordDocument) return { ...prev, step: 'word-edit' };
-        return { ...prev, step: 'capture' };
+        if (prev.selectedPDFTemplate) return { ...prev, step: 'pdf-template', capturedImage: prev.capturedImage };
+        return { ...prev, step: 'pdf-template', capturedImage: prev.capturedImage };
       }
-      if (current === 'word-edit') {
-        const backStep = prev.selectedWordDocument?.id === 'uploaded' ? 'word-upload' : 'word-select';
-        return { ...prev, step: backStep };
-      }
-      if (current === 'word-upload') return { ...prev, step: 'complete' };
-      if (current === 'word-select') return { ...prev, step: 'complete' };
-      if (current === 'pdf-template') return { ...prev, step: 'pdf-template-select' };
-      if (current === 'pdf-template-select') return { ...prev, step: 'complete' };
       if (current === 'complete') {
         if (prev.processedPDF) return { ...prev, step: 'preview' };
-        return { ...prev, step: 'upload' };
+        return { ...prev, step: 'pdf-template-select' };
       }
+      if (current === 'constancia-upload') return { ...prev, step: 'complete' };
       return prev;
     });
   }, []);
 
   const getStepperConfig = () => {
-    // Flujo por defecto (subir/capturar/preview/completado)
-    const defaultConfig = {
-      labels: ['Cargar constancia en PDF', 'Capturar Foto', 'Previsualizar', 'Completado'],
-      map: { upload: 1, capture: 2, preview: 3, complete: 4 } as Record<string, number>
-    };
+    // Flujo principal: Seleccionar PDF (con captura de foto) -> Previsualizar -> Completado -> Cargar Constancia
+    const baseLabels = ['Seleccionar Plantilla PDF', 'Previsualizar', 'Completado', 'Cargar Constancia'];
+    const baseMap = { 
+      'pdf-template-select': 1, 
+      'pdf-template': 1,
+      'preview': 2, 
+      'complete': 3,
+      'constancia-upload': 4
+    } as Record<string, number>;
 
-    // Flujo de plantillas PDF (selector/editor/preview/completado)
-    if (state.step === 'pdf-template-select' || state.step === 'pdf-template') {
+    // Si se ha cargado la constancia, agregar un paso adicional
+    if (state.constanciaLoaded) {
       return {
-        labels: ['Seleccionar PDF', 'Registro de alumno', 'Previsualizar', 'Completado'],
-        map: { 'pdf-template-select': 1, 'pdf-template': 2, preview: 3, complete: 4 } as Record<string, number>
+        labels: ['Seleccionar Plantilla PDF', 'Previsualizar', 'Completado', 'Cargar Constancia', 'Constancia cargada'],
+        map: { 
+          'pdf-template-select': 1, 
+          'pdf-template': 1,
+          'preview': 2, 
+          'complete': 3,
+          'constancia-upload': 4,
+          'constancia-loaded': 5
+        } as Record<string, number>
       };
     }
 
-    return defaultConfig;
+    return {
+      labels: baseLabels,
+      map: baseMap
+    };
+  };
+
+  const getCurrentSectionTitle = () => {
+    switch (state.step) {
+      case 'pdf-template-select':
+        return 'Seleccionar Plantilla PDF';
+      case 'pdf-template':
+        return 'Editor de Plantilla PDF';
+      case 'preview':
+        return 'Previsualización del Resultado';
+      case 'complete':
+        return 'Proceso Completado';
+      case 'constancia-upload':
+        return 'Cargar Constancia';
+      default:
+        return 'Editor PDF con Webcam';
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-yellow-50">
-      {/* Header */}
-      <header className="bg-orange-600 shadow-sm border-b border-orange-700">
-        <div className="max-w-screen-2xl mx-auto px-4 py-6">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-yellow-100 rounded-lg">
-              <FileText className="w-6 h-6 text-orange-600" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white">
-                Editor PDF con Webcam
-              </h1>
-              <p className="text-orange-100 text-sm">
-                Inserta fotos capturadas desde tu cámara directamente en documentos PDF
-              </p>
+    <div className="min-h-screen bg-gray-50 flex">
+      {/* Sidebar */}
+      <Sidebar
+        isOpen={state.sidebarOpen}
+        onToggle={toggleSidebar}
+        currentStep={state.step}
+        onNavigate={handleNavigate}
+        onReset={resetAllData}
+        onDownload={handleDownload}
+        hasProcessedPDF={!!state.processedPDF}
+        hasCapturedImage={!!state.capturedImage}
+        isCollapsed={state.sidebarCollapsed}
+        onToggleCollapse={toggleSidebarCollapse}
+        capturedImage={state.capturedImage}
+        onImageCapture={(imageDataUrl) => {
+          updateCapturedImageIfAllowed(imageDataUrl);
+          // Navegar a la pantalla principal de "Tomar Fotografía" para mostrar la previsualización
+          setState(prev => ({ ...prev, step: 'pdf-template-select' }));
+        }}
+      />
+
+      {/* Main Content */}
+      <div className={`flex-1 flex flex-col transition-all duration-300 ${state.sidebarCollapsed ? 'lg:ml-0' : 'lg:ml-0'}`}>
+        {/* Header */}
+        <header className="bg-white shadow-sm border-b sticky top-0 z-10">
+          <div className={`max-w-screen-2xl mx-auto ${state.sidebarCollapsed ? 'px-2 sm:px-4 lg:px-4' : 'px-4 sm:px-4 lg:px-8'} py-6`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={toggleSidebar}
+                  className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <Menu className="w-5 h-5 text-gray-600" />
+                </button>
+                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-gray-900">
+                    {getCurrentSectionTitle()}
+                  </h1>
+                  <p className="text-sm text-gray-600 hidden sm:block">
+                    Editor PDF con Webcam
+                  </p>
+                </div>
+              </div>
+              <div className="hidden sm:flex items-center gap-2 text-sm text-gray-500">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>Paso {getStepperConfig().map[state.step] || 1} de {getStepperConfig().labels.length}</span>
+              </div>
             </div>
           </div>
-        </div>
-      </header>
+        </header>
 
       {/* Progress Indicator */}
-      <div className="max-w-screen-2xl mx-auto px-4 py-8">
-        {state.step !== 'upload' && (
-          <div className="mb-4">
+  <div className={`w-full ${state.sidebarCollapsed ? 'px-2 sm:px-4 lg:px-6' : 'px-4 sm:px-6 lg:px-8'} py-6 xl:py-8`}>
+        {/* Botón Volver y Línea de Tiempo */}
+        <div className="flex flex-col sm:flex-row items-center justify-between mb-6 xl:mb-8 gap-4">
+          {/* Botón Volver a la izquierda */}
+          <div className="flex-shrink-0 order-2 sm:order-1">
+            {state.step !== 'pdf-template-select' && (
             <button
               onClick={goBack}
               className="flex items-center gap-2 px-4 py-2 text-orange-600 hover:text-orange-800 hover:bg-orange-100 rounded-lg transition-colors"
@@ -342,11 +577,13 @@ function App() {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
-              Volver
+              <span className="hidden sm:inline">Volver</span>
             </button>
+            )}
           </div>
-        )}
-        <div className="flex items-center justify-between mb-8">
+          
+          {/* Línea de tiempo centrada */}
+          <div className="flex-1 flex justify-center order-1 sm:order-2 w-full sm:w-auto">
           {(() => {
             const { labels, map } = getStepperConfig();
             const current = map[state.step] || 1;
@@ -354,29 +591,38 @@ function App() {
             return labels.map((label, index) => {
               const stepNum = index + 1;
               const isActive = stepNum === current;
-              const isCompleted = stepNum < current;
+              // Si estamos en 'complete' y se ha cargado la constancia, marcar el último paso como completado
+              const isCompleted = stepNum < current || (state.step === 'complete' && state.constanciaLoaded && stepNum === labels.length);
 
               return (
-                <div key={label} className="flex items-center flex-1">
-                  <div className="flex flex-col items-center">
+                <div key={label} className="flex items-center flex-1 min-w-0">
+                  <div className="flex flex-col items-center min-w-0">
                     <div className={`
-                      w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold
+                      w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm font-semibold
                       ${isCompleted ? 'bg-yellow-500 text-black' : 
                         isActive ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-500'}
                       transition-all duration-300
                     `}>
-                      {isCompleted ? <CheckCircle className="w-5 h-5" /> : stepNum}
+                      {isCompleted ? <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5" /> : stepNum}
                     </div>
                     <span className={`
-                      mt-2 text-xs font-medium text-center
+                      mt-1 sm:mt-2 text-xs font-medium text-center px-1
                       ${isActive ? 'text-orange-600' : isCompleted ? 'text-yellow-600' : 'text-gray-500'}
+                      hidden sm:block
                     `}>
                       {label}
+                    </span>
+                    <span className={`
+                      mt-1 text-xs font-medium text-center px-1
+                      ${isActive ? 'text-orange-600' : isCompleted ? 'text-yellow-600' : 'text-gray-500'}
+                      block sm:hidden
+                    `}>
+                      {label.split(' ')[0]}
                     </span>
                   </div>
                   {index < lastIndex && (
                     <div className={`
-                      flex-1 h-0.5 mx-4
+                      flex-1 h-0.5 mx-2 sm:mx-4
                       ${isCompleted ? 'bg-yellow-500' : 'bg-gray-200'}
                       transition-all duration-300
                     `} />
@@ -385,6 +631,7 @@ function App() {
               );
             });
           })()}
+          </div>
         </div>
 
         {/* Error Message */}
@@ -402,125 +649,172 @@ function App() {
         )}
 
         {/* Main Content */}
-        <div className="relative bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden">
-          {/* Decoración sutil */}
-          <div className="pointer-events-none absolute -top-16 -right-16 w-64 h-64 bg-gradient-to-br from-yellow-200/50 to-orange-300/40 rounded-full blur-3xl" />
-          <div className="pointer-events-none absolute -bottom-20 -left-20 w-72 h-72 bg-gradient-to-br from-orange-200/40 to-yellow-300/40 rounded-full blur-3xl" />
-          {state.step === 'upload' && (
-            <div className="p-8">
-              <div className="text-center mb-6">
-                <Upload className="w-12 h-12 text-orange-500 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold text-slate-900 mb-2">
-                  Cargar Documento PDF
-                </h2>
-                <p className="text-slate-600">
-                  Selecciona un archivo PDF que contenga el espacio designado para la foto
-                </p>
-              </div>
-              <PDFUploader onPDFUpload={handlePDFUpload} />
-            </div>
-          )}
-
-          {state.step === 'capture' && (
-            <div className="p-8">
-              <div className="text-center mb-6">
-                <Camera className="w-12 h-12 text-orange-500 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold text-slate-900 mb-2">
-                  Capturar Fotografía
-                </h2>
-                <p className="text-slate-600">
-                  Usa tu cámara web para tomar la foto que se insertará en el documento
-                </p>
-              </div>
-              <WebcamCapture 
-                onImageCapture={handleImageCapture} 
-                isProcessing={state.isProcessing}
-              />
-            </div>
-          )}
-
-          {state.step === 'preview' && state.processedPDF && (
-            <div className="p-8">
-              <div className="text-center mb-6">
-                <h2 className="text-xl font-semibold text-slate-900 mb-2">
-                  Previsualización del Resultado
-                </h2>
-                <p className="text-slate-600">
-                  Revisa el documento con la foto insertada antes de descargar
-                </p>
-              </div>
-              
-              <PDFPreview pdfData={state.processedPDF} />
-              
-              <div className="flex flex-col sm:flex-row gap-4 mt-6">
-                <button
-                  onClick={handleDownload}
-                  className="flex-1 flex items-center justify-center gap-2 bg-orange-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-orange-700 transition-colors"
-                >
-                  <Download className="w-5 h-5" />
-                  Descargar PDF
-                </button>
-                <button
-                  onClick={handlePrint}
-                  className="flex-1 flex items-center justify-center gap-2 bg-yellow-600 text-black px-6 py-3 rounded-lg font-semibold hover:bg-yellow-700 transition-colors"
-                >
-                  <Printer className="w-5 h-5" />
-                  Imprimir Documento
-                </button>
-              </div>
-              
-              <button
-                onClick={resetProcess}
-                className="w-full mt-4 text-orange-600 hover:text-orange-800 transition-colors text-sm"
-              >
-                ¿Procesar otro Alumno?
-              </button>
-            </div>
-          )}
-
-          {state.step === 'word-select' && (
-            <div className="p-8">
-              <WordDocumentSelector 
-                onDocumentSelect={handleWordDocumentSelect}
-                onEditDocument={handleWordDocumentEdit}
-              />
-            </div>
-          )}
-
-          {state.step === 'word-upload' && (
-            <div className="p-8">
-              <WordTemplateUploader
-                onTemplateUpload={handleWordTemplateUpload}
-                onBack={() => setState(prev => ({ ...prev, step: 'complete' }))}
-              />
-            </div>
-          )}
-
-          {state.step === 'word-edit' && state.selectedWordDocument && (
-            <div className="p-8">
-              <WordDocumentEditor
-                document={state.selectedWordDocument}
-                onSave={handleWordContentSave}
-                onBack={() => setState(prev => ({ 
-                  ...prev, 
-                  step: state.selectedWordDocument?.id === 'uploaded' ? 'word-upload' : 'word-select' 
-                }))}
-                onGeneratePDF={handleWordToPDF}
-              />
-            </div>
-          )}
-
+        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
           {state.step === 'pdf-template-select' && (
-            <div className="p-8">
+            <div className="p-6 xl:p-8 w-full">
               <PDFTemplateSelector
                 onTemplateSelect={handlePDFTemplateSelect}
-                onBack={() => setState(prev => ({ ...prev, step: 'complete' }))}
+                initialCapturedImage={state.capturedImage || undefined}
+                onImageCapture={updateCapturedImageIfAllowed}
               />
             </div>
           )}
 
+
+          {state.step === 'preview' && state.processedPDF && (
+            <div className="p-6 xl:p-8 w-full">
+              <div className="text-center mb-6">
+                <h2 className="text-lg font-medium text-gray-900 mb-2">Previsualización del Resultado</h2>
+                <p className="text-gray-600 text-sm">Revisa el documento con la foto insertada antes de descargar</p>
+              </div>
+              <div className="mb-6">
+                <PDFPreview pdfData={state.processedPDF} />
+              </div>
+              <div className="space-y-4">
+                <div className="bg-white border border-gray-200 rounded-lg p-4">
+                  <h3 className="font-medium text-gray-900 mb-4 flex items-center gap-2">
+                    <Download className="w-5 h-5" />
+                    Acciones Disponibles
+                  </h3>
+                  <div className="space-y-3">
+                    <button
+                      onClick={handleDownloadWithConfirmation}
+                      className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                    >
+                      <Download className="w-5 h-5" />
+                      Descargar PDF
+                    </button>
+                    <button
+                      onClick={handlePrintWithConfirmation}
+                      className="w-full flex items-center justify-center gap-2 bg-green-600 text-white px-4 py-3 rounded-lg font-medium hover:bg-green-700 transition-colors"
+                    >
+                      <Printer className="w-5 h-5" />
+                      Imprimir PDF
+                    </button>
+                  </div>
+                </div>
+                <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+                  <h3 className="font-medium text-gray-900 mb-3 flex items-center gap-2">
+                    <CheckCircle className="w-5 h-5" />
+                    Estado del Proceso
+                  </h3>
+                  <div className="text-sm text-gray-600 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      <span>PDF procesado exitosamente</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      <span>Foto insertada correctamente</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      <span>Listo para descargar</span>
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={resetAllData}
+                  className="w-full text-gray-600 hover:text-gray-800 transition-colors text-sm border border-gray-300 rounded-lg py-2 hover:bg-gray-50"
+                >
+                  ¿Procesar otro Alumno?
+                </button>
+                <button
+                  onClick={() => setState(prev => ({ ...prev, step: 'complete' }))}
+                  className="w-full mt-3 inline-flex items-center justify-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium text-sm"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Finalizar Edición
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Modales de Confirmación */}
+          {state.showDownloadConfirmation && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 max-w-md mx-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                    <Download className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900">Descargar PDF</h3>
+                </div>
+                
+                <p className="text-gray-600 mb-6">
+                  ¿Estás seguro de que quieres descargar el PDF? El documento se guardará con la foto insertada.
+                </p>
+                
+                <div className="flex gap-3">
+                  <button
+                    onClick={confirmDownload}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Descargar PDF
+                  </button>
+                  <button
+                    onClick={() => setState(prev => ({ ...prev, showDownloadConfirmation: false }))}
+                    className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {state.showPrintConfirmation && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 max-w-md mx-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                    <Printer className="w-5 h-5 text-green-600" />
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900">Imprimir PDF</h3>
+                </div>
+                
+                <p className="text-gray-600 mb-6">
+                  ¿Estás seguro de que quieres imprimir el PDF? Se abrirá la ventana de impresión del navegador.
+                </p>
+                
+                <div className="flex gap-3">
+                  <button
+                    onClick={confirmPrint}
+                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    Imprimir PDF
+                  </button>
+                  <button
+                    onClick={() => setState(prev => ({ ...prev, showPrintConfirmation: false }))}
+                    className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Constancia Uploader */}
+          {state.step === 'constancia-upload' && (
+            <div className="p-6 xl:p-8 w-full">
+              <ConstanciaUploader
+                onConstanciaUpload={handleConstanciaPDFUpload}
+                onBack={() => setState(prev => ({ ...prev, step: 'complete' }))}
+                capturedImage={state.capturedImage}
+                processedPDF={state.pdfArrayBuffer}
+                isProcessing={state.isProcessing}
+                onImageUpdate={(newImage) => setState(prev => ({ ...prev, capturedImage: newImage }))}
+              />
+            </div>
+          )}
+
+
+
           {state.step === 'pdf-template' && (
-            <div className="p-8">
+            <div className="p-6 xl:p-8 w-full">
               <PDFTemplateEditor
                 onBack={() => setState(prev => ({ ...prev, step: 'pdf-template-select' }))}
                 onComplete={handlePDFTemplateComplete}
@@ -533,58 +827,57 @@ function App() {
           )}
 
           {state.step === 'complete' && (
-            <div className="relative p-8 text-center">
-              {/* confeti sutil */}
-              <div className="pointer-events-none absolute inset-0 opacity-10">
-                <div className="absolute top-6 left-10 w-2 h-2 bg-orange-400 rounded-full" />
-                <div className="absolute top-10 right-12 w-2 h-2 bg-yellow-500 rounded-full" />
-                <div className="absolute bottom-8 left-1/3 w-2 h-2 bg-orange-300 rounded-full" />
-                <div className="absolute bottom-10 right-1/4 w-2 h-2 bg-yellow-400 rounded-full" />
-              </div>
-
-              <CheckCircle className="w-16 h-16 text-yellow-500 mx-auto mb-6" />
-              <h2 className="text-2xl font-semibold text-slate-900 mb-2">
+            <div className="p-6 xl:p-8 text-center w-full">
+              <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
+              <h2 className="text-lg font-medium text-gray-900 mb-2">
                 ¡Proceso completado!
               </h2>
-              <p className="text-slate-600 mb-6">
+              <p className="text-gray-600 mb-6 text-sm">
                 El PDF ha sido procesado exitosamente con la fotografía insertada del alumno.
               </p>
 
-              <div className="mb-8">
-                <h3 className="text-lg font-semibold text-slate-900 mb-4">
-                  Selecciona qué deseas hacer ahora
+              <div className="mb-6">
+                <h3 className="text-base font-medium text-gray-900 mb-4">
+                  ¿Qué deseas hacer ahora?
                 </h3>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                   <button
-                    onClick={goToPDFTemplate}
-                    className="flex items-center justify-center gap-2 bg-orange-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-orange-700 transition-colors"
+                    onClick={resetAllData}
+                    className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
                   >
                     <FileText className="w-5 h-5" />
-                    Seleccionar PDF
+                    Procesar Nueva Constancia
                   </button>
+                  
                   <button
-                    onClick={resetProcess}
-                    className="flex items-center justify-center gap-2 bg-yellow-500 text-black px-6 py-3 rounded-lg font-semibold hover:bg-yellow-600 transition-colors"
+                    onClick={() => setState(prev => ({ ...prev, step: 'constancia-upload' }))}
+                    className="flex items-center justify-center gap-2 bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 transition-colors"
                   >
-                    Procesar nueva constancia
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    Cargar Constancia
                   </button>
                 </div>
               </div>
 
-              <button
-                onClick={resetProcess}
-                className="text-sm text-orange-600 hover:text-orange-800 underline-offset-4 hover:underline"
-                title="Volver al inicio"
-              >
-                Volver al inicio
-              </button>
+
+              <div className="text-center">
+                <button
+                  onClick={resetProcess}
+                  className="text-sm text-gray-600 hover:text-gray-800 transition-colors"
+                  title="Volver al inicio"
+                >
+                  Volver al inicio
+                </button>
+                <p className="text-xs text-gray-500 mt-1">
+                  Los datos rellenados hasta ahora se quedarán guardados
+                </p>
+              </div>
             </div>
           )}
         </div>
       </div>
-      {/* Crédito sutil */}
-      <div className="pointer-events-none fixed bottom-2 right-3 select-none">
-        <span className="text-[10px] text-slate-400/60 tracking-wide">Creado por FabritcioPS15</span>
       </div>
     </div>
   );

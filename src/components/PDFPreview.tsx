@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { FileText, AlertCircle } from 'lucide-react';
 
 interface PDFPreviewProps {
-  pdfData: Uint8Array;
+  pdfData: Uint8Array | ArrayBuffer;
 }
 
 const PDFPreview: React.FC<PDFPreviewProps> = ({ pdfData }) => {
@@ -11,7 +11,8 @@ const PDFPreview: React.FC<PDFPreviewProps> = ({ pdfData }) => {
 
   useEffect(() => {
     try {
-      const blob = new Blob([pdfData], { type: 'application/pdf' });
+      const data = pdfData instanceof Uint8Array ? pdfData.buffer.slice() : pdfData;
+      const blob = new Blob([data as ArrayBuffer], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       setPdfUrl(url);
       setError(null);
@@ -49,31 +50,30 @@ const PDFPreview: React.FC<PDFPreviewProps> = ({ pdfData }) => {
 
   return (
     <div className="w-full">
-      <div className="bg-slate-50 border border-slate-200 rounded-lg overflow-hidden">
-        <div className="bg-slate-100 px-4 py-3 border-b border-slate-200">
+      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+        <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
           <div className="flex items-center gap-2">
-            <FileText className="w-5 h-5 text-slate-600" />
-            <span className="text-sm font-medium text-slate-700">
+            <FileText className="w-4 h-4 text-gray-600" />
+            <span className="text-sm font-medium text-gray-700">
               Vista Previa del PDF
             </span>
           </div>
         </div>
         
-        <div className="p-4">
+        <div>
           <iframe
-            src={pdfUrl}
-            className="w-full h-60 border border-slate-300 rounded"
+            src={`${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0&zoom=page-width`}
+            className="w-full h-[80vh]"
             title="Vista previa del PDF"
-            style={{ minHeight: '600px' }}
           />
         </div>
       </div>
       
-      <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200">
+      <div className="mt-3 p-2 bg-green-50 rounded border border-green-200">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-          <span className="text-green-800 text-sm font-medium">
-            PDF procesado exitosamente con la fotografía insertada
+          <span className="text-green-800 text-sm">
+            PDF procesado exitosamente
           </span>
         </div>
       </div>
