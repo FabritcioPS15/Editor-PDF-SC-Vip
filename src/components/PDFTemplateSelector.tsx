@@ -236,7 +236,7 @@ const PDFTemplateSelector: React.FC<PDFTemplateSelectorProps> = ({
                       src={capturedImage} 
                       alt="Foto capturada" 
                       className="mx-auto w-full object-cover rounded-lg border border-gray-300"
-                      style={{ maxHeight: '380px' }}
+                      style={{ maxHeight: '520px' }}
                     />
                   </div>
                 </div>
@@ -267,11 +267,13 @@ const PDFTemplateSelector: React.FC<PDFTemplateSelectorProps> = ({
             {showCamera && (
               <div className="space-y-4">
                 <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-                  <div className="max-w-2xl mx-auto">
-                    <WebcamCapture
-                      isProcessing={false}
-                      onImageCapture={handleImageCapture}
-                    />
+                  <div className="mx-auto w-full">
+                    <div className="relative w-full h-[520px] sm:h-[560px] rounded-md overflow-hidden">
+                      <WebcamCapture
+                        isProcessing={false}
+                        onImageCapture={handleImageCapture}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
