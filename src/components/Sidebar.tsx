@@ -579,6 +579,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                   {hasProcessedPDF ? 'PDF procesado' : 'Sin procesar'}
                 </span>
               </div>
+              <div className="flex items-center gap-2 text-sm">
+                <div className={`w-2 h-2 rounded-full ${constanciaLoaded ? 'bg-green-300' : 'bg-white/50'}`}></div>
+                <span className="text-white">
+                  {constanciaLoaded ? 'Constancia procesada' : 'Sin constancia'}
+                </span>
+              </div>
             </div>
           </div>
         )}
