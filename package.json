@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
+    "@untitledui/icons": "^0.0.19",
+    "face-api.js": "^0.22.2",
     "framer-motion": "^12.23.24",
     "lucide-react": "^0.344.0",
     "pdf-lib": "^1.17.1",

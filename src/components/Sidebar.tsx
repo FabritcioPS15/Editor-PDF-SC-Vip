@@ -1,18 +1,21 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { 
-  Home, 
-  Camera, 
-  FileText, 
-  Download, 
-  Settings, 
-  History, 
   HelpCircle,
   Menu,
   X,
   RotateCcw,
   Check,
-  AlertCircle
+  History
 } from 'lucide-react';
+import { 
+  HomeLine,
+  Rows01,
+  PieChart03,
+  Settings01,
+  MessageChatCircle,
+  LayoutAlt01,
+  Folder
+} from '@untitledui/icons';
 import { faceDetectionService, FaceDetectionResult } from '../utils/faceDetection';
 
 interface SidebarProps {
@@ -28,6 +31,10 @@ interface SidebarProps {
   onToggleCollapse: () => void;
   capturedImage?: string | null;
   onImageCapture?: (imageDataUrl: string) => void;
+  constanciaLoaded?: boolean;
+  sede: string;
+  onSedeChange: (s: string) => void;
+  progressPercent?: number;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -42,7 +49,11 @@ const Sidebar: React.FC<SidebarProps> = ({
   isCollapsed,
   onToggleCollapse,
   capturedImage,
-  onImageCapture
+  onImageCapture,
+  constanciaLoaded,
+  sede,
+  onSedeChange,
+  progressPercent
 }) => {
   // Webcam states
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -53,6 +64,23 @@ const Sidebar: React.FC<SidebarProps> = ({
   const misalignedStreakRef = useRef<number>(0);
   
   const [isStreaming, setIsStreaming] = useState(false);
+
+  const getStepTitle = (step: string) => {
+    switch (step) {
+      case 'pdf-template-select':
+        return 'Inicio';
+      case 'pdf-template':
+        return 'Editor PDF';
+      case 'preview':
+        return 'Descargar PDF';
+      case 'constancia-upload':
+        return 'Subir constancia';
+      case 'constancia-loaded':
+        return 'Descargar constancia';
+      default:
+        return 'Proceso';
+    }
+  };
   const [sidebarCapturedImage, setSidebarCapturedImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [faceDetection, setFaceDetection] = useState<FaceDetectionResult>({
@@ -64,6 +92,14 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [isAutoCapturing, setIsAutoCapturing] = useState(false);
   const [showWebcam, setShowWebcam] = useState(false);
   const [sidebarUsed, setSidebarUsed] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  // Sync external captured image into the sidebar preview so it's shown first
+  useEffect(() => {
+    if (capturedImage) {
+      setSidebarCapturedImage(capturedImage);
+    }
+  }, [capturedImage]);
 
   // Webcam functions
   const startCamera = useCallback(async () => {
@@ -287,65 +323,16 @@ const Sidebar: React.FC<SidebarProps> = ({
     setShowWebcam(false);
   }, [sidebarCapturedImage, onImageCapture, hasCapturedImage]);
 
-  const menuItems = [
-    {
-      id: 'tomar-foto',
-      label: 'Tomar Foto',
-      icon: Camera,
-      description: 'Abrir cámara',
-      disabled: false
-    },
-    {
-      id: 'pdf-template-select',
-      label: 'Inicio',
-      icon: Home,
-      description: 'Seleccionar plantilla'
-    },
-    {
-      id: 'pdf-template',
-      label: 'Editor',
-      icon: FileText,
-      description: 'Editar plantilla',
-      disabled: currentStep === 'pdf-template-select'
-    },
-    {
-      id: 'preview',
-      label: 'Vista Previa',
-      icon: Camera,
-      description: 'Ver resultado',
-      disabled: !hasProcessedPDF
-    },
-    {
-      id: 'complete',
-      label: 'Completado',
-      icon: Download,
-      description: 'Descargar PDF',
-      disabled: !hasProcessedPDF
-    },
-    {
-      id: 'constancia-upload',
-      label: 'Constancia',
-      icon: FileText,
-      description: 'Cargar constancia',
-      disabled: false
-    }
+  type NavLeaf = { label: string; step: string; icon?: React.ComponentType<any>; disabled?: boolean };
+  const navItems: NavLeaf[] = [
+    { label: 'Inicio', step: 'pdf-template-select', icon: HomeLine },
+    { label: 'Editor PDF', step: 'pdf-template', icon: Rows01 },
+    { label: 'Descargar PDF', step: 'preview', icon: PieChart03, disabled: !hasProcessedPDF },
+    { label: 'Subir constancia', step: 'constancia-upload', icon: Folder },
+    { label: 'Descargar constancia', step: 'constancia-loaded', icon: LayoutAlt01, disabled: !constanciaLoaded }
   ];
 
   const quickActions = [
-    {
-      id: 'camera',
-      label: hasCapturedImage ? 'Cambiar Foto' : 'Tomar Foto',
-      icon: Camera,
-      action: () => setShowWebcam(true),
-      disabled: false
-    },
-    {
-      id: 'download',
-      label: 'Descargar',
-      icon: Download,
-      action: onDownload,
-      disabled: !hasProcessedPDF
-    },
     {
       id: 'reset',
       label: 'Nuevo',
@@ -356,7 +343,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     {
       id: 'constancia',
       label: 'Cargar Constancia',
-      icon: FileText,
+      icon: Rows01,
       action: () => onNavigate('constancia-upload'),
       disabled: false
     }
@@ -374,19 +361,24 @@ const Sidebar: React.FC<SidebarProps> = ({
   // Auto start/stop camera when toggling webcam section
   useEffect(() => {
     if (showWebcam) {
-      // reset state
+      // reset detection state
       setError(null);
       setAutoCaptureCountdown(null);
       setIsAutoCapturing(false);
       alignedStreakRef.current = 0;
       misalignedStreakRef.current = 0;
       setFaceDetection({ isFaceDetected: false, isFaceAligned: false });
-      startCamera();
+      // Only start camera if there is no captured image to show first
+      if (!sidebarCapturedImage) {
+        startCamera();
+      } else {
+        stopCamera();
+      }
     } else {
       stopCamera();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showWebcam]);
+  }, [showWebcam, sidebarCapturedImage]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -410,123 +402,161 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar */}
       <div className={`
-        fixed top-0 left-0 h-screen bg-white shadow-lg z-50 transform transition-all duration-300 ease-in-out overflow-y-auto
-        ${isOpen ? 'translate-x-0' : '-translate-x-full'}
-        ${isCollapsed ? 'w-12' : 'w-64'}
-        lg:translate-x-0 lg:sticky lg:top-0 lg:z-auto
+        fixed top-0 left-0 h-screen bg-orange-600 shadow-lg z-50 overflow-y-auto flex flex-col transition-all duration-300 ease-out
+        ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}
+        ${isCollapsed ? 'w-20' : 'w-72'}
+        lg:opacity-100 lg:pointer-events-auto lg:sticky lg:top-0 lg:z-auto
       `}>
         {/* Header */}
-        <div className={`flex items-center justify-between ${isCollapsed ? 'p-2' : 'p-4'} border-b border-gray-200`}>
+        <div className={`flex items-center justify-between ${isCollapsed ? 'p-2' : 'p-4'} border-b border-orange-500`}>
           {!isCollapsed && (
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center">
-                <FileText className="w-4 h-4 text-white" />
+              <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
+                <LayoutAlt01 className="w-7 h-7 text-orange-600" />
               </div>
               <div>
-                <h2 className="text-base font-semibold text-gray-900">PDF Editor</h2>
-                <p className="text-xs text-gray-500">Con Webcam</p>
+                <h2 className="text-lg font-semibold text-white">PDF Editor</h2>
+                <p className="text-sm text-orange-100">Con Webcam</p>
               </div>
             </div>
           )}
-          {isCollapsed && (
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mx-auto" title="PDF Editor">
-              <FileText className="w-4 h-4 text-white" />
-            </div>
-          )}
-          <div className="flex items-center gap-2">
+          <div className={`flex items-center gap-2 ${isCollapsed ? 'w-full justify-center' : ''}`}>
             <button
               onClick={onToggleCollapse}
-              className="hidden lg:block p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+              className={`hidden lg:flex items-center justify-center ${isCollapsed ? 'w-10 h-10' : 'p-1.5'} hover:bg-orange-500 rounded-lg transition-colors`}
               title={isCollapsed ? 'Expandir sidebar' : 'Contraer sidebar'}
+              aria-label={isCollapsed ? 'Expandir sidebar' : 'Contraer sidebar'}
             >
-              <Menu className={`${isCollapsed ? 'w-3.5 h-3.5' : 'w-4 h-4'} text-gray-600`} />
+              <Menu className={`w-6 h-6 text-white`} />
             </button>
-            <button
-              onClick={onToggle}
-              className="lg:hidden p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <X className={`${isCollapsed ? 'w-4 h-4' : 'w-5 h-5'} text-gray-600`} />
-            </button>
+            {!isCollapsed && (
+              <button
+                onClick={onToggle}
+                className="lg:hidden p-1.5 hover:bg-orange-500 rounded-lg transition-colors"
+              >
+                <X className="w-6 h-6 text-white" />
+              </button>
+            )}
           </div>
         </div>
 
         {/* Navigation */}
         <div className={`${isCollapsed ? 'p-2' : 'p-4'}`}>
-          {!isCollapsed && <h3 className="text-sm font-medium text-gray-700 mb-3">Navegación</h3>}
+          {!isCollapsed && (
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-white mb-1">Sede</label>
+              <select
+                value={sede}
+                onChange={(e) => onSedeChange(e.target.value)}
+                className="w-full bg-white/10 text-white placeholder-white/70 border border-orange-400/40 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-white/60 focus:border-white/60"
+              >
+                <option className="text-gray-900" value="Sede Central">Sede Central</option>
+                <option className="text-gray-900" value="Sede Norte">Sede Norte</option>
+                <option className="text-gray-900" value="Sede Sur">Sede Sur</option>
+              </select>
+            </div>
+          )}
+          {!isCollapsed && (
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-orange-100">Progreso</span>
+                <span className="text-xs text-orange-100">{Math.max(0, Math.min(100, progressPercent ?? 0))}%</span>
+              </div>
+              <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-white rounded-full"
+                  style={{ width: `${Math.max(0, Math.min(100, progressPercent ?? 0))}%` }}
+                />
+              </div>
+              <div className="mt-1 text-[11px] text-orange-100">Paso actual: {getStepTitle(currentStep)}</div>
+            </div>
+          )}
+          {!isCollapsed && <h3 className="text-sm font-medium text-white mb-3">Navegación</h3>}
           <nav className={`${isCollapsed ? 'space-y-2' : 'space-y-1'}`}>
-            {menuItems.map((item) => {
+            {navItems.map((item) => {
+              const isActive = currentStep === item.step;
+              const isDisabled = !!item.disabled;
               const Icon = item.icon;
-              const isActive = currentStep === item.id;
-              const isDisabled = item.disabled;
-              
               return (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    if (isDisabled) return;
-                    if (item.id === 'tomar-foto') {
-                      setShowWebcam(true);
-                      return;
-                    }
-                    onNavigate(item.id);
-                  }}
-                  disabled={isDisabled}
-                  className={`
-                    w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} 
-                    ${isCollapsed ? 'p-2' : 'px-3 py-2.5'} rounded-lg text-left transition-all duration-200
-                    ${isActive 
-                      ? 'bg-blue-50 text-blue-700 border border-blue-200' 
-                      : isDisabled
-                        ? 'text-gray-400 cursor-not-allowed'
-                        : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
-                    }
-                  `}
-                  title={isCollapsed ? `${item.label}${item.description ? ` - ${item.description}` : ''}` : undefined}
-                  data-tooltip-id="sidebar-tooltip"
-                >
-                  <Icon className={`${isCollapsed ? 'w-5 h-5' : 'w-5 h-5'} ${isActive ? 'text-blue-600' : ''}`} />
-                  {!isCollapsed && (
-                    <div className="flex-1">
-                      <div className="font-medium text-sm">{item.label}</div>
-                      <div className="text-xs text-gray-500">{item.description}</div>
-                    </div>
+                <div key={`leaf-${item.label}`} className="relative group">
+                  <button
+                    onClick={() => { if (!isDisabled) onNavigate(item.step); }}
+                    disabled={isDisabled}
+                    aria-label={isCollapsed ? item.label : undefined}
+                    className={`
+                      relative w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} 
+                      ${isCollapsed ? 'p-3' : 'px-3 py-2.5'} rounded-lg text-left transition-all duration-200
+                      ${isActive 
+                        ? 'bg-white text-orange-700' 
+                        : isDisabled
+                          ? 'text-orange-300 cursor-not-allowed'
+                          : 'text-white hover:bg-orange-500'
+                      }
+                    `}
+                    title={isCollapsed ? item.label : undefined}
+                    data-tooltip-id="sidebar-tooltip"
+                  >
+                    {isActive && isCollapsed && (
+                      <span className="absolute inset-y-0 left-0 w-1 bg-white rounded-r pointer-events-none" />
+                    )}
+                    {Icon && <Icon className={`w-6 h-6 ${isActive ? 'text-orange-600' : isDisabled ? 'text-orange-300' : 'text-white'}`} />}
+                    {!isCollapsed && (
+                      <div className="flex-1">
+                        <div className="font-medium text-sm flex items-center gap-2">
+                          {item.label}
+                        </div>
+                      </div>
+                    )}
+                    {isActive && !isCollapsed && (
+                      <div className="w-2 h-2 bg-white rounded-full"></div>
+                    )}
+                  </button>
+                  {isCollapsed && (
+                    <span className="absolute left-full top-1/2 -translate-y-1/2 ml-2 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-xs text-white opacity-0 group-hover:opacity-100 pointer-events-none shadow-lg">
+                      {item.label}
+                    </span>
                   )}
-                  {isActive && !isCollapsed && (
-                    <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
-                  )}
-                </button>
+                </div>
               );
             })}
           </nav>
         </div>
 
         {/* Quick Actions */}
-        <div className={`${isCollapsed ? 'p-2' : 'p-4'} border-t border-gray-200`}>
-          {!isCollapsed && <h3 className="text-sm font-medium text-gray-700 mb-3">Acciones Rápidas</h3>}
+        <div className={`${isCollapsed ? 'p-2' : 'p-4'} border-t border-orange-500`}>
+          {!isCollapsed && <h3 className="text-sm font-medium text-white mb-3">Acciones Rápidas</h3>}
           <div className={`${isCollapsed ? 'space-y-2' : 'space-y-2'}`}>
             {quickActions.map((action) => {
               const Icon = action.icon;
               const isDisabled = action.disabled;
+              const colorClass = !isDisabled ? 'text-white' : 'text-orange-300';
               
               return (
-                <button
-                  key={action.id}
-                  onClick={action.action}
-                  disabled={isDisabled}
-                  className={`
-                    w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} 
-                    ${isCollapsed ? 'p-3' : 'px-3 py-2'} rounded-lg text-left transition-all duration-200
-                    ${isCollapsed ? 'hover:bg-gray-100' : ''}
-                    ${isDisabled
-                      ? 'text-gray-400 cursor-not-allowed'
-                      : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
-                    }
-                  `}
-                  title={isCollapsed ? action.label : undefined}
-                >
-                  <Icon className={`${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'}`} />
-                  {!isCollapsed && <span className="text-sm font-medium">{action.label}</span>}
-                </button>
+                <div key={action.id} className="relative group">
+                  <button
+                    onClick={action.action}
+                    disabled={isDisabled}
+                    aria-label={isCollapsed ? action.label : undefined}
+                    className={`
+                      relative w-full flex items-center ${isCollapsed ? 'justify-center' : 'gap-3'} 
+                      ${isCollapsed ? 'p-3' : 'px-3 py-2'} rounded-lg text-left transition-all duration-200
+                      ${isCollapsed ? 'hover:bg-orange-500' : ''}
+                      ${isDisabled
+                        ? 'text-orange-300 cursor-not-allowed'
+                        : 'text-white hover:bg-orange-500'
+                      }
+                    `}
+                    title={isCollapsed ? action.label : undefined}
+                  >
+                    <Icon className={`w-6 h-6 ${colorClass}`} />
+                    {!isCollapsed && <span className="text-sm font-medium">{action.label}</span>}
+                  </button>
+                  {isCollapsed && (
+                    <span className="absolute left-full top-1/2 -translate-y-1/2 ml-2 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-xs text-white opacity-0 group-hover:opacity-100 pointer-events-none shadow-lg">
+                      {action.label}
+                    </span>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -534,18 +564,18 @@ const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Status */}
         {!isCollapsed && (
-          <div className="p-4 border-t border-gray-200">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Estado</h3>
+          <div className="p-4 border-t border-orange-500">
+            <h3 className="text-sm font-medium text-white mb-3">Estado</h3>
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-sm">
-                <div className={`w-2 h-2 rounded-full ${hasCapturedImage ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                <span className="text-gray-600">
+                <div className={`w-2 h-2 rounded-full ${hasCapturedImage ? 'bg-green-300' : 'bg-white/50'}`}></div>
+                <span className="text-white">
                   {hasCapturedImage ? 'Foto capturada' : 'Sin foto'}
                 </span>
               </div>
               <div className="flex items-center gap-2 text-sm">
-                <div className={`w-2 h-2 rounded-full ${hasProcessedPDF ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                <span className="text-gray-600">
+                <div className={`w-2 h-2 rounded-full ${hasProcessedPDF ? 'bg-green-300' : 'bg-white/50'}`}></div>
+                <span className="text-white">
                   {hasProcessedPDF ? 'PDF procesado' : 'Sin procesar'}
                 </span>
               </div>
@@ -553,16 +583,54 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
-        {/* Help */}
-        <div className={`${isCollapsed ? 'p-2' : 'p-4'} border-t border-gray-200`}>
-          <button 
-            className={`flex items-center ${isCollapsed ? 'justify-center p-3' : 'gap-3 px-3 py-2'} w-full rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-50 transition-colors`}
-            title={isCollapsed ? 'Ayuda' : undefined}
-            data-tooltip-id="sidebar-tooltip"
-          >
-            <HelpCircle className={`${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'}`} />
-            {!isCollapsed && <span className="text-sm">Ayuda</span>}
-          </button>
+        {/* Support & Settings (below Status and Proceso), visible but disabled */}
+        {!isCollapsed && (
+          <div className="p-4 border-t border-orange-500">
+            <div className="space-y-2">
+              
+            </div>
+          </div>
+        )}
+
+        {/* Help (pinned at bottom) */}
+        <div className={`${isCollapsed ? 'p-2' : 'p-4'} border-t border-orange-500 mt-auto`}>
+          <div className="relative group">
+            <button 
+              onClick={() => !isCollapsed && setHelpOpen(v => !v)}
+              className={`relative flex items-center ${isCollapsed ? 'justify-center p-3' : 'justify-between px-3 py-2'} w-full rounded-lg text-white hover:text-white hover:bg-orange-500 transition-colors`}
+              title={isCollapsed ? 'Ayuda' : undefined}
+              data-tooltip-id="sidebar-tooltip"
+              aria-label={isCollapsed ? 'Ayuda' : undefined}
+            >
+              <span className={`flex items-center ${isCollapsed ? '' : 'gap-3'}`}>
+                <HelpCircle className={`w-6 h-6`} />
+                {!isCollapsed && <span className="text-sm">Ayuda</span>}
+              </span>
+              {!isCollapsed && (
+                <span className="text-xs text-orange-100">{helpOpen ? 'Ocultar' : 'Mostrar'}</span>
+              )}
+            </button>
+            {!isCollapsed && helpOpen && (
+              <div className="mt-2 text-xs text-white bg-white/10 border border-orange-400/40 rounded p-3 leading-relaxed">
+                <div className="font-medium text-white mb-1">¿Cómo funciona?</div>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>En Inicio, elige una plantilla de PDF.</li>
+                  <li>En Editor, completa los campos requeridos.</li>
+                  <li>Captura tu foto desde Inicio cuando se solicite.</li>
+                  <li>En Vista Previa, revisa el resultado final.</li>
+                  <li>En Completado, descarga tu PDF final.</li>
+                </ol>
+                <div className="mt-2 text-white/90">
+                  Consejos: asegúrate de una buena iluminación y rostro centrado para una mejor captura.
+                </div>
+              </div>
+            )}
+            {isCollapsed && (
+              <span className="absolute left-full top-1/2 -translate-y-1/2 ml-2 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-xs text-white opacity-0 group-hover:opacity-100 pointer-events-none shadow-lg">
+                Ayuda
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Webcam Section */}

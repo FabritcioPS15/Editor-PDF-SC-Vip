@@ -1,13 +1,12 @@
 import { useState, useCallback } from 'react';
-import { Download, Printer, FileText, CheckCircle, AlertCircle, Menu } from 'lucide-react';
-import PDFPreview from './components/PDFPreview';
+import { Download, Printer, FileText, CheckCircle } from 'lucide-react';
 import PDFTemplateEditor from './components/PDFTemplateEditor';
-import PDFTemplateSelector from './components/PDFTemplateSelector';
 import ConstanciaUploader from './components/ConstanciaUploader';
 import Sidebar from './components/Sidebar';
+import PDFTemplateSelector from './components/PDFTemplateSelector';
 
 interface AppState {
-  step: 'upload' | 'capture' | 'preview' | 'complete' | 'pdf-template' | 'pdf-template-select' | 'constancia-upload';
+  step: 'upload' | 'capture' | 'preview' | 'complete' | 'pdf-template' | 'pdf-template-select' | 'constancia-upload' | 'constancia-loaded';
   pdfFile: File | null;
   pdfArrayBuffer: ArrayBuffer | null;
   capturedImage: string | null;
@@ -23,6 +22,16 @@ interface AppState {
   error: string | null;
   sidebarOpen: boolean;
   sidebarCollapsed: boolean;
+  cameraFacingMode: 'user' | 'environment';
+  faceDetectionEnabled: boolean;
+  autoCaptureEnabled: boolean;
+  autoCaptureDelay: number;
+  selectedPDFFileName: string | null;
+  faceDetection?: {
+    isFaceDetected: boolean;
+    isFaceAligned: boolean;
+  };
+  sede: string;
 }
 
 function App() {
@@ -43,7 +52,25 @@ function App() {
     error: null,
     sidebarOpen: false,
     sidebarCollapsed: false,
+    cameraFacingMode: 'user',
+    faceDetectionEnabled: true,
+    autoCaptureEnabled: false,
+    autoCaptureDelay: 3,
+    selectedPDFFileName: null,
+    faceDetection: { isFaceDetected: false, isFaceAligned: false },
+    sede: 'Sede Central',
   });
+
+  // Progress based on the current step (header progress bar)
+  const stepsOrder: AppState['step'][] = [
+    'pdf-template-select',
+    'pdf-template',
+    'preview',
+    'constancia-upload',
+    'constancia-loaded'
+  ];
+  const currentStepIndex = Math.max(0, stepsOrder.indexOf(state.step));
+  const progress = Math.max(0, Math.min(100, Math.round((currentStepIndex / (stepsOrder.length - 1)) * 100)));
 
 
   const toggleSidebar = useCallback(() => {
@@ -110,7 +137,6 @@ function App() {
         document.body.removeChild(link);
       }
       // No revocar inmediatamente para no romper la pestaña abierta
-      // El navegador liberará el objeto al cerrar la pestaña.
     } catch (_) {}
   }, []);
 
@@ -375,6 +401,13 @@ function App() {
       error: null,
       sidebarOpen: false,
       sidebarCollapsed: false,
+      cameraFacingMode: 'user',
+      faceDetectionEnabled: true,
+      autoCaptureEnabled: false,
+      autoCaptureDelay: 3,
+      selectedPDFFileName: null,
+      faceDetection: { isFaceDetected: false, isFaceAligned: false },
+      sede: 'Sede Central',
     });
   }, []);
 
@@ -499,13 +532,15 @@ function App() {
         return 'Proceso Completado';
       case 'constancia-upload':
         return 'Cargar Constancia';
+      case 'constancia-loaded':
+        return 'Descargar Constancia';
       default:
         return 'Editor PDF con Webcam';
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen bg-white flex">
       {/* Sidebar */}
       <Sidebar
         isOpen={state.sidebarOpen}
@@ -519,157 +554,57 @@ function App() {
         isCollapsed={state.sidebarCollapsed}
         onToggleCollapse={toggleSidebarCollapse}
         capturedImage={state.capturedImage}
+        constanciaLoaded={state.constanciaLoaded}
+        sede={state.sede}
+        onSedeChange={(s) => setState(prev => ({ ...prev, sede: s }))}
+        progressPercent={progress}
         onImageCapture={(imageDataUrl) => {
           updateCapturedImageIfAllowed(imageDataUrl);
-          // Navegar a la pantalla principal de "Tomar Fotografía" para mostrar la previsualización
           setState(prev => ({ ...prev, step: 'pdf-template-select' }));
         }}
       />
 
       {/* Main Content */}
-      <div className={`flex-1 flex flex-col transition-all duration-300 ${state.sidebarCollapsed ? 'lg:ml-0' : 'lg:ml-0'}`}>
-        {/* Header */}
-        <header className="bg-white shadow-sm border-b sticky top-0 z-10">
-          <div className={`max-w-screen-2xl mx-auto ${state.sidebarCollapsed ? 'px-2 sm:px-4 lg:px-4' : 'px-4 sm:px-4 lg:px-8'} py-6`}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={toggleSidebar}
-                  className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <Menu className="w-5 h-5 text-gray-600" />
-                </button>
-                <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                  <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </div>
-                <div>
-                  <h1 className="text-xl font-bold text-gray-900">
-                    {getCurrentSectionTitle()}
-                  </h1>
-                  <p className="text-sm text-gray-600 hidden sm:block">
-                    Editor PDF con Webcam
-                  </p>
+      <div className="p-6 xl:p-8 w-full">
+        {/* Top Header */}
+        <div className="mb-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex flex-col">
+              <h1 className="text-xl font-semibold text-gray-900">{getCurrentSectionTitle()}</h1>
+              <span className="text-xs text-gray-500">Paso actual · {getCurrentSectionTitle()}</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="hidden sm:flex items-center gap-2">
+                <span className="text-sm text-gray-500">Sede activa:</span>
+                <span className="inline-flex items-center rounded-md bg-orange-50 px-2 py-1 text-sm font-medium text-orange-700 border border-orange-200">{state.sede}</span>
+              </div>
+              <div className="hidden md:flex items-center gap-2">
+                <span className="text-xs text-gray-500 w-14 text-right">{progress}%</span>
+                <div className="w-40 h-2 bg-orange-100 rounded-full overflow-hidden">
+                  <div className="h-full bg-orange-600" style={{ width: `${progress}%` }} />
                 </div>
               </div>
-              <div className="hidden sm:flex items-center gap-2 text-sm text-gray-500">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span>Paso {getStepperConfig().map[state.step] || 1} de {getStepperConfig().labels.length}</span>
+              <div className="flex items-center gap-2">
+                <button className="hidden sm:inline-flex text-sm text-gray-600 hover:text-gray-900">Progreso</button>
               </div>
             </div>
           </div>
-        </header>
-
-      {/* Progress Indicator */}
-  <div className={`w-full ${state.sidebarCollapsed ? 'px-2 sm:px-4 lg:px-6' : 'px-4 sm:px-6 lg:px-8'} py-6 xl:py-8`}>
-        {/* Botón Volver y Línea de Tiempo */}
-        <div className="flex flex-col sm:flex-row items-center justify-between mb-6 xl:mb-8 gap-4">
-          {/* Botón Volver a la izquierda */}
-          <div className="flex-shrink-0 order-2 sm:order-1">
-            {state.step !== 'pdf-template-select' && (
-            <button
-              onClick={goBack}
-              className="flex items-center gap-2 px-4 py-2 text-orange-600 hover:text-orange-800 hover:bg-orange-100 rounded-lg transition-colors"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              <span className="hidden sm:inline">Volver</span>
-            </button>
-            )}
-          </div>
-          
-          {/* Línea de tiempo centrada */}
-          <div className="flex-1 flex justify-center order-1 sm:order-2 w-full sm:w-auto">
-          {(() => {
-            const { labels, map } = getStepperConfig();
-            const current = map[state.step] || 1;
-            const lastIndex = labels.length - 1;
-            return labels.map((label, index) => {
-              const stepNum = index + 1;
-              const isActive = stepNum === current;
-              // Si estamos en 'complete' y se ha cargado la constancia, marcar el último paso como completado
-              const isCompleted = stepNum < current || (state.step === 'complete' && state.constanciaLoaded && stepNum === labels.length);
-
-              return (
-                <div key={label} className="flex items-center flex-1 min-w-0">
-                  <div className="flex flex-col items-center min-w-0">
-                    <div className={`
-                      w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm font-semibold
-                      ${isCompleted ? 'bg-yellow-500 text-black' : 
-                        isActive ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-500'}
-                      transition-all duration-300
-                    `}>
-                      {isCompleted ? <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5" /> : stepNum}
-                    </div>
-                    <span className={`
-                      mt-1 sm:mt-2 text-xs font-medium text-center px-1
-                      ${isActive ? 'text-orange-600' : isCompleted ? 'text-yellow-600' : 'text-gray-500'}
-                      hidden sm:block
-                    `}>
-                      {label}
-                    </span>
-                    <span className={`
-                      mt-1 text-xs font-medium text-center px-1
-                      ${isActive ? 'text-orange-600' : isCompleted ? 'text-yellow-600' : 'text-gray-500'}
-                      block sm:hidden
-                    `}>
-                      {label.split(' ')[0]}
-                    </span>
-                  </div>
-                  {index < lastIndex && (
-                    <div className={`
-                      flex-1 h-0.5 mx-2 sm:mx-4
-                      ${isCompleted ? 'bg-yellow-500' : 'bg-gray-200'}
-                      transition-all duration-300
-                    `} />
-                  )}
-                </div>
-              );
-            });
-          })()}
-          </div>
+          <div className="border-b border-gray-200" />
         </div>
 
-        {/* Error Message */}
-        {state.error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-            <p className="text-red-700 text-sm">{state.error}</p>
-            <button
-              onClick={() => setState(prev => ({ ...prev, error: null }))}
-              className="ml-auto text-red-500 hover:text-red-700 transition-colors"
-            >
-              ×
-            </button>
+        {state.step === 'pdf-template-select' && (
+          <div className="p-6 xl:p-8 w-full">
+            <PDFTemplateSelector
+              onTemplateSelect={handlePDFTemplateSelect}
+              initialCapturedImage={state.capturedImage || undefined}
+              onImageCapture={(imageDataUrl) => {
+                updateCapturedImageIfAllowed(imageDataUrl);
+              }}
+            />
           </div>
         )}
 
-        {/* Main Content */}
-        <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-          {state.step === 'pdf-template-select' && (
-            <div className="p-6 xl:p-8 w-full">
-              <PDFTemplateSelector
-                onTemplateSelect={handlePDFTemplateSelect}
-                initialCapturedImage={state.capturedImage || undefined}
-                onImageCapture={updateCapturedImageIfAllowed}
-              />
-            </div>
-          )}
-
-
-          {state.step === 'preview' && state.processedPDF && (
-            <div className="p-6 xl:p-8 w-full">
-              <div className="text-center mb-6">
-                <h2 className="text-lg font-medium text-gray-900 mb-2">Previsualización del Resultado</h2>
-                <p className="text-gray-600 text-sm">Revisa el documento con la foto insertada antes de descargar</p>
-              </div>
-              <div className="mb-6">
-                <PDFPreview pdfData={state.processedPDF} />
-              </div>
+        {state.step === 'preview' && (
               <div className="space-y-4">
                 <div className="bg-white border border-gray-200 rounded-lg p-4">
                   <h3 className="font-medium text-gray-900 mb-4 flex items-center gap-2">
@@ -729,8 +664,7 @@ function App() {
                   Finalizar Edición
                 </button>
               </div>
-            </div>
-          )}
+        )}
 
           {/* Modales de Confirmación */}
           {state.showDownloadConfirmation && (
@@ -811,6 +745,30 @@ function App() {
             </div>
           )}
 
+          {state.step === 'constancia-loaded' && (
+            <div className="p-6 xl:p-8 w-full">
+              <div className="bg-white border border-gray-200 rounded-lg p-4">
+                <h3 className="font-medium text-gray-900 mb-4 flex items-center gap-2">
+                  <Download className="w-5 h-5" />
+                  Descargar Constancia
+                </h3>
+                <div className="space-y-3">
+                  <button
+                    onClick={() => {
+                      if (!state.pdfArrayBuffer) return;
+                      const bytes = new Uint8Array(state.pdfArrayBuffer);
+                      downloadPdfBytes(bytes, true);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 bg-orange-600 text-white px-4 py-3 rounded-lg font-medium hover:bg-orange-700 transition-colors"
+                  >
+                    <Download className="w-5 h-5" />
+                    Descargar Constancia PDF
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
 
 
           {state.step === 'pdf-template' && (
@@ -876,11 +834,9 @@ function App() {
               </div>
             </div>
           )}
-        </div>
-      </div>
       </div>
     </div>
-  );
+          );
 }
 
 export default App;
