@@ -310,23 +310,12 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
         </div>
       )}
 
-      {capturedImage && (
-        <div className="w-full max-w-2xl flex justify-end gap-3 mb-4">
-          <button onClick={retakePhoto} disabled={isProcessing} className="inline-flex items-center gap-2 bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:bg-gray-500 shadow-lg">
-            <RotateCcw className="w-4 h-4" />
-            Tomar otra
-          </button>
-          <button onClick={confirmPhoto} disabled={isProcessing} className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:bg-gray-500 shadow-lg">
-            <Check className="w-4 h-4" />
-            Usar foto
-          </button>
-        </div>
-      )}
+      {capturedImage && null}
       <div className="w-full max-w-2xl">
         <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl overflow-hidden relative shadow-2xl border-4 border-gray-700 h-[720px]">
           {!capturedImage ? (
             <>
-              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
 
               {(!isStreaming || isFaceApiLoading) && !error && (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-95">
@@ -449,6 +438,16 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
               <div className="absolute top-4 left-4 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2 z-20">
                 <Check className="w-4 h-4" />
                 Foto capturada
+              </div>
+              <div className="absolute bottom-4 right-4 flex gap-3 z-30">
+                <button onClick={retakePhoto} disabled={isProcessing} className="inline-flex items-center gap-2 bg-gray-800/90 hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:bg-gray-600 shadow-lg">
+                  <RotateCcw className="w-4 h-4" />
+                  Tomar otra
+                </button>
+                <button onClick={confirmPhoto} disabled={isProcessing} className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:bg-gray-600 shadow-lg">
+                  <Check className="w-4 h-4" />
+                  Usar foto
+                </button>
               </div>
             </div>
           )}
