@@ -492,6 +492,25 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
                 <Check className="w-4 h-4" />
                 Foto capturada
               </div>
+              {/* Botones flotantes para asegurar visibilidad */}
+              <div className="absolute bottom-4 right-4 flex gap-3 z-20">
+                <button
+                  onClick={retakePhoto}
+                  disabled={isProcessing}
+                  className="inline-flex items-center gap-2 bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:bg-gray-500 shadow-lg"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Tomar otra
+                </button>
+                <button
+                  onClick={confirmPhoto}
+                  disabled={isProcessing}
+                  className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:bg-gray-500 shadow-lg"
+                >
+                  <Check className="w-4 h-4" />
+                  Usar foto
+                </button>
+              </div>
             </div>
           )}
         </div>
