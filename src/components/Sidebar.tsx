@@ -11,8 +11,6 @@ import {
   HomeLine,
   Rows01,
   PieChart03,
-  Settings01,
-  MessageChatCircle,
   LayoutAlt01,
   Folder
 } from '@untitledui/icons';

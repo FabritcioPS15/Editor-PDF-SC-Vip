@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Camera, RotateCcw, Check, AlertCircle } from 'lucide-react';
+import { RotateCcw, Check, AlertCircle, Timer, Aperture } from 'lucide-react';
 import { faceDetectionService, FaceDetectionResult } from '../utils/faceDetection';
 
 interface WebcamCaptureProps {
@@ -27,6 +27,7 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
   const [isFaceApiLoading, setIsFaceApiLoading] = useState(true);
   const [autoCaptureCountdown, setAutoCaptureCountdown] = useState<number | null>(null);
   const [isAutoCapturing, setIsAutoCapturing] = useState(false);
+  const [isAutoMode, setIsAutoMode] = useState(false);
 
   const startCamera = useCallback(async () => {
     try {
@@ -104,13 +105,12 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
       const videoRect = videoElement.getBoundingClientRect();
       
       // Calculate frame box coordinates (the white dashed frame)
-      const frameDisplayWidth = Math.min(500, Math.max(400, videoRect.width * 0.30));
-      const frameDisplayHeight = Math.min(650, videoRect.height * 1.40);
-      
-      // Frame in DISPLAY coordinates
+      const frameDisplayWidth = Math.min(600, Math.max(400, videoRect.width * 0.50));
+      const frameDisplayHeight = Math.min(600, videoRect.height * 0.90);
+      const verticalOffset = videoRect.height * 0.16; // slightly less upwards
       const frameDisplayBox = {
         x: (videoRect.width - frameDisplayWidth) / 2,
-        y: (videoRect.height - frameDisplayHeight) / 2,
+        y: (videoRect.height - frameDisplayHeight) / 2 - verticalOffset,
         width: frameDisplayWidth,
         height: frameDisplayHeight
       };
@@ -143,8 +143,8 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
       const alignedStable = alignedStreakRef.current >= 3; // ~0.9s with 300ms interval
       const misalignedStable = misalignedStreakRef.current >= 3;
 
-      // Start countdown only after stability
-      if (alignedStable && !isAutoCapturing && !capturedImage) {
+      // Start countdown only after stability and only if auto mode is enabled
+      if (alignedStable && !isAutoCapturing && !capturedImage && isAutoMode) {
         if (autoCaptureCountdown === null) {
           setAutoCaptureCountdown(2);
           setIsAutoCapturing(true);
@@ -176,7 +176,7 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
     } catch (error) {
       console.error('Error detecting face:', error);
     }
-  }, [isStreaming, isFaceApiLoading, isAutoCapturing, capturedImage, autoCaptureCountdown]);
+  }, [isStreaming, isFaceApiLoading, isAutoCapturing, capturedImage, autoCaptureCountdown, isAutoMode]);
 
   const capturePhoto = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
@@ -208,8 +208,9 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
       const videoDisplayHeight = videoRect.height;
       
       // Marco visible en pantalla
-      const frameDisplayWidth = Math.min(500, Math.max(400, videoDisplayWidth * 0.30));
-      const frameDisplayHeight = Math.min(650, videoDisplayHeight * 1.40);
+      const frameDisplayWidth = Math.min(600, Math.max(400, videoDisplayWidth * 0.50));
+      const frameDisplayHeight = Math.min(600, videoDisplayHeight * 0.90);
+      const verticalOffsetDisplay = videoDisplayHeight * 0.16;
       
       // Mapeo a coordenadas de video
       const scaleX = videoWidth / videoDisplayWidth;
@@ -217,7 +218,7 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
       const cropWidth = Math.round(frameDisplayWidth * scaleX);
       const cropHeight = Math.round(frameDisplayHeight * scaleY);
       const cropX = Math.round((videoWidth - cropWidth) / 2);
-      const cropY = Math.round((videoHeight - cropHeight) / 2);
+      const cropY = Math.round((videoHeight - cropHeight) / 2 - verticalOffsetDisplay * scaleY);
 
       const safeCropX = Math.max(0, Math.min(cropX, videoWidth - cropWidth));
       const safeCropY = Math.max(0, Math.min(cropY, videoHeight - cropHeight));
@@ -286,23 +287,16 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
   // Face detection effect
   useEffect(() => {
     if (!isStreaming || isFaceApiLoading) return;
-
-    // Set optimal detection interval
-    faceDetectionService.setDetectionThrottle(300); // 300ms for better responsiveness
-    
-    const interval = setInterval(detectFace, 300); // Detect every 300ms
+    faceDetectionService.setDetectionThrottle(300);
+    const interval = setInterval(detectFace, 300);
     return () => clearInterval(interval);
   }, [isStreaming, isFaceApiLoading, detectFace]);
 
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
-      if (countdownTimerRef.current) {
-        clearInterval(countdownTimerRef.current);
-      }
-      if (autoCaptureTimerRef.current) {
-        clearTimeout(autoCaptureTimerRef.current);
-      }
+      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+      if (autoCaptureTimerRef.current) clearTimeout(autoCaptureTimerRef.current);
     };
   }, []);
 
@@ -312,159 +306,109 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 max-w-md">
           <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           <span className="text-red-700 text-sm flex-1">{error}</span>
-          <button 
-            onClick={() => setError(null)}
-            className="text-red-500 hover:text-red-700 text-lg font-bold"
-          >
-            ×
-          </button>
+          <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 text-lg font-bold">×</button>
         </div>
       )}
 
-      {/* Contenedor principal de la cámara */}
+      {capturedImage && (
+        <div className="w-full max-w-2xl flex justify-end gap-3 mb-4">
+          <button onClick={retakePhoto} disabled={isProcessing} className="inline-flex items-center gap-2 bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:bg-gray-500 shadow-lg">
+            <RotateCcw className="w-4 h-4" />
+            Tomar otra
+          </button>
+          <button onClick={confirmPhoto} disabled={isProcessing} className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:bg-gray-500 shadow-lg">
+            <Check className="w-4 h-4" />
+            Usar foto
+          </button>
+        </div>
+      )}
       <div className="w-full max-w-2xl">
-        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl overflow-hidden relative shadow-2xl border-4 border-gray-700">
+        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl overflow-hidden relative shadow-2xl border-4 border-gray-700 h-[720px]">
           {!capturedImage ? (
             <>
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-              />
-              
-              {/* Overlay de carga */}
+              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+
               {(!isStreaming || isFaceApiLoading) && !error && (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-95">
                   <div className="text-center text-white">
                     <div className="w-12 h-12 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-lg font-medium">
-                      {isFaceApiLoading ? 'Cargando detección facial...' : 'Iniciando cámara...'}
-                    </p>
-                    <p className="text-sm text-gray-300 mt-2">
-                      {isFaceApiLoading ? 'Preparando modelos de IA' : 'Por favor, permite el acceso a la cámara'}
-                    </p>
+                    <p className="text-lg font-medium">{isFaceApiLoading ? 'Cargando detección facial...' : 'Iniciando cámara...'}</p>
+                    <p className="text-sm text-gray-300 mt-2">{isFaceApiLoading ? 'Preparando modelos de IA' : 'Por favor, permite el acceso a la cámara'}</p>
                   </div>
                 </div>
               )}
-              
-              {/* Overlay de error */}
+
               {error && (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-95">
                   <div className="text-center text-white p-6">
                     <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-400" />
                     <h3 className="text-xl font-semibold mb-2">Error de Cámara</h3>
                     <p className="text-gray-300 mb-6">No se pudo acceder a la cámara</p>
-                    <button
-                      onClick={startCamera}
-                      className="bg-blue-600 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-lg"
-                    >
-                      Intentar nuevamente
-                    </button>
+                    <button onClick={startCamera} className="bg-blue-600 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-lg">Intentar nuevamente</button>
                   </div>
                 </div>
               )}
-              
-              {/* Overlay de guía cuando está transmitiendo */}
+
               {isStreaming && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
                   <div className="relative w-full h-full flex items-center justify-center">
-                    {/* Área de recorte mejorada */}
-                      <div 
-                        className="border-4 border-white border-dashed shadow-2xl relative bg-transparent"
-                        style={{
-                          width: '30%',
-                          height: '140%',
-                          minWidth: '400px',
-                          minHeight: '500px',
-                          maxWidth: '500px',
-                          maxHeight: '650px',
-                          borderRadius: '12px',
-                          borderStyle: 'dashed',
-                          borderWidth: '4px'
-                        }}
-                      >
-                     {/* Guía de posicionamiento mejorada */}
-<div className="absolute inset-0 flex items-center justify-center">
-  <div className="w-80 h-120 opacity-35"> {/* Aumentamos el tamaño */}
-    <svg viewBox="0 0 96 128" fill="white" className="w-full h-full drop-shadow-2xl">
-      {/* Silueta anatómicamente más parecida a un rostro humano */}
-     {/* Silueta anatómicamente más parecida a un rostro humano */} 
-     <path d=" M48,8 C66,8 80,30 80,54 C80,76 66,98 56,106 C52,110 44,110 40,106 C30,98 16,76 16,54 C16,30 30,8 48,8 Z " 
-     stroke={faceDetection.isFaceAligned ? "#00FF88" : faceDetection.isFaceDetected ? "#FFD700" : "rgba(255,255,255,0.9)"} 
-     strokeWidth="2" fill="none" /> </svg>
-  </div>
-</div>
-
-                    {/* Indicador de estado de detección facial */}
-                    {isStreaming && !isFaceApiLoading && (
-                      <div className="absolute top-4 right-4 bg-black bg-opacity-70 text-white px-3 py-2 rounded-lg text-sm">
-                        {isAutoCapturing && autoCaptureCountdown !== null ? (
-                          <div className="flex items-center gap-2 text-orange-400">
-                            <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse"></div>
-                            Capturando en {autoCaptureCountdown}s
-                          </div>
-                        ) : faceDetection.isFaceAligned ? (
-                          <div className="flex items-center gap-2 text-green-400">
-                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                            Rostro alineado
-                          </div>
-                        ) : faceDetection.isFaceDetected ? (
-                          <div className="flex items-center gap-2 text-yellow-400">
-                            <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
-                            Rostro detectado
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2 text-gray-400">
-                            <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-                            Buscando rostro...
-                          </div>
-                        )}
+                    <div className="border-2 border-white border-dashed shadow-2xl relative bg-transparent" style={{ width: '50%', height: '80%', minWidth: '520px', minHeight: '300px', maxWidth: '600px', maxHeight: '560px', borderRadius: '8px', borderStyle: 'dashed', borderWidth: '1px', transform: 'translateY(-14%)' }}>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-80 h-120 opacity-35">
+                          <svg viewBox="0 0 96 128" fill="white" className="w-full h-full drop-shadow-2xl">
+                            <path d=" M48,8 C66,8 80,30 80,54 C80,76 66,98 56,106 C52,110 44,110 40,106 C30,98 16,76 16,54 C16,30 30,8 48,8 Z " stroke={faceDetection.isFaceAligned ? '#06f712ff' : faceDetection.isFaceDetected ? '#ffae00ff' : '#FFFFFF'} strokeWidth="1" fill="none" strokeDasharray="6 4" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </div>
                       </div>
-                    )}
 
+                      {isStreaming && !isFaceApiLoading && (
+                        <div className="absolute top-4 right-4 bg-black bg-opacity-70 text-white px-3 py-2 rounded-lg text-sm">
+                          {isAutoCapturing && autoCaptureCountdown !== null ? (
+                            <div className="flex items-center gap-2 text-orange-400">
+                              <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse"></div>
+                              Capturando en {autoCaptureCountdown}s
+                            </div>
+                          ) : faceDetection.isFaceAligned ? (
+                            <div className="flex items-center gap-2 text-green-400">
+                              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                              Rostro alineado
+                            </div>
+                          ) : faceDetection.isFaceDetected ? (
+                            <div className="flex items-center gap-2 text-yellow-400">
+                              <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
+                              Rostro detectado
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 text-gray-400">
+                              <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                              Buscando rostro...
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Contador de captura automática */}
               {isAutoCapturing && autoCaptureCountdown !== null && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
                   <div className="bg-black bg-opacity-80 text-white rounded-full w-24 h-24 flex items-center justify-center">
                     <div className="text-center">
-                      <div className="text-3xl font-bold text-orange-400 animate-pulse">
-                        {autoCaptureCountdown}
-                      </div>
-                      <div className="text-xs text-gray-300 mt-1">
-                        segundos
-                      </div>
+                      <div className="text-3xl font-bold text-orange-400 animate-pulse">{autoCaptureCountdown}</div>
+                      <div className="text-xs text-gray-300 mt-1">segundos</div>
                     </div>
                   </div>
                 </div>
               )}
-              
-              {/* Botón de captura mejorado */}
+
               {isStreaming && (
-                <div className="absolute bottom-6 right-6 z-20">
+                <div className="absolute bottom-48 right-6 z-50">
                   <button
                     onClick={isAutoCapturing ? cancelAutoCapture : capturePhoto}
-                    disabled={!faceDetection.isFaceAligned && !isAutoCapturing}
-                    className={`group relative w-16 h-16 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 transform hover:scale-105 active:scale-95 ${
-                      faceDetection.isFaceAligned || isAutoCapturing
-                        ? isAutoCapturing 
-                          ? 'bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white'
-                          : 'bg-gradient-to-br from-orange-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white'
-                        : 'bg-gray-500 text-gray-300 cursor-not-allowed'
-                    }`}
-                    title={
-                      isAutoCapturing 
-                        ? 'Cancelar captura automática' 
-                        : faceDetection.isFaceAligned 
-                          ? 'Capturar foto manualmente' 
-                          : 'Alinea tu rostro dentro del marco para capturar'
-                    }
+                    disabled={!isStreaming || (isAutoMode && !faceDetection.isFaceAligned && !isAutoCapturing)}
+                    className={`group relative w-16 h-16 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 transform hover:scale-105 active:scale-95 ${(!isAutoMode || faceDetection.isFaceAligned) || isAutoCapturing ? (isAutoCapturing ? 'bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white' : 'bg-gradient-to-br from-orange-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white') : 'bg-gray-500 text-gray-300 cursor-not-allowed'}`}
+                    title={isAutoCapturing ? 'Cancelar captura automática' : isAutoMode ? (faceDetection.isFaceAligned ? 'Capturar foto manualmente' : 'Alinea tu rostro dentro del marco para capturar') : 'Capturar foto (modo manual)'}
                   >
                     <div className="absolute inset-0 bg-white rounded-full opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
                     {isAutoCapturing ? (
@@ -473,43 +417,38 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
                         <div className="absolute w-2 h-2 bg-white rounded-full"></div>
                       </div>
                     ) : (
-                      <Camera className="w-8 h-8 relative z-10" />
+                      <Aperture className="w-8 h-8 relative z-10" />
                     )}
+                  </button>
+                </div>
+              )}
+
+              {isStreaming && (
+                <div className="absolute bottom-48 left-6 z-50">
+                  <button
+                    onClick={() => {
+                      setIsAutoMode((prev) => {
+                        const next = !prev;
+                        if (!next) cancelAutoCapture();
+                        return next;
+                      });
+                    }}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium shadow-2xl transition-colors inline-flex items-center gap-2 ${isAutoMode ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-700 hover:bg-gray-800 text-white'}`}
+                    title={isAutoMode ? 'Desactivar modo automático' : 'Activar modo automático'}
+                  >
+                    <Timer className="w-4 h-4" />
+                    {isAutoMode ? 'Automático: ON' : 'Automático: OFF'}
                   </button>
                 </div>
               )}
             </>
           ) : (
-            /* Vista previa de la foto capturada */
             <div className="relative">
-              <img 
-                src={capturedImage} 
-                alt="Foto capturada" 
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-60"></div>
-              <div className="absolute top-4 left-4 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2">
+              <img src={capturedImage as string} alt="Foto capturada" className="w-full h-auto object-cover block" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-60 pointer-events-none z-10"></div>
+              <div className="absolute top-4 left-4 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2 z-20">
                 <Check className="w-4 h-4" />
                 Foto capturada
-              </div>
-              {/* Botones flotantes para asegurar visibilidad */}
-              <div className="absolute bottom-4 right-4 flex gap-3 z-20">
-                <button
-                  onClick={retakePhoto}
-                  disabled={isProcessing}
-                  className="inline-flex items-center gap-2 bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:bg-gray-500 shadow-lg"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                  Tomar otra
-                </button>
-                <button
-                  onClick={confirmPhoto}
-                  disabled={isProcessing}
-                  className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:bg-gray-500 shadow-lg"
-                >
-                  <Check className="w-4 h-4" />
-                  Usar foto
-                </button>
               </div>
             </div>
           )}
@@ -517,39 +456,6 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
       </div>
 
       <canvas ref={canvasRef} className="hidden" />
-      
-      {/* Botones de acción mejorados */}
-      {capturedImage && (
-        <div className="w-full max-w-md mt-8">
-          <div className="flex gap-4">
-            <button
-              onClick={retakePhoto}
-              disabled={isProcessing}
-              className="flex-1 flex items-center justify-center gap-3 bg-gray-600 hover:bg-gray-700 text-white px-6 py-4 rounded-xl text-lg font-medium disabled:bg-gray-400 transition-all duration-300 transform hover:scale-105 active:scale-95 shadow-lg"
-            >
-              <RotateCcw className="w-6 h-6" />
-              Tomar otra
-            </button>
-            <button
-              onClick={confirmPhoto}
-              disabled={isProcessing}
-              className="flex-1 flex items-center justify-center gap-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-6 py-4 rounded-xl text-lg font-medium disabled:bg-gray-400 transition-all duration-300 transform hover:scale-105 active:scale-95 shadow-lg"
-            >
-              {isProcessing ? (
-                <>
-                  <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Procesando...
-                </>
-              ) : (
-                <>
-                  <Check className="w-6 h-6" />
-                  Usar foto
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
