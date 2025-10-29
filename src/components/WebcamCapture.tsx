@@ -105,7 +105,7 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
       
       // Calculate frame box coordinates (the white dashed frame)
       const frameDisplayWidth = Math.min(500, Math.max(400, videoRect.width * 0.30));
-      const frameDisplayHeight = Math.min(450, videoRect.height * 1.20);
+      const frameDisplayHeight = Math.min(650, videoRect.height * 1.40);
       
       // Frame in DISPLAY coordinates
       const frameDisplayBox = {
@@ -209,7 +209,7 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
       
       // Marco visible en pantalla
       const frameDisplayWidth = Math.min(500, Math.max(400, videoDisplayWidth * 0.30));
-      const frameDisplayHeight = Math.min(450, videoDisplayHeight * 1.20);
+      const frameDisplayHeight = Math.min(650, videoDisplayHeight * 1.40);
       
       // Mapeo a coordenadas de video
       const scaleX = videoWidth / videoDisplayWidth;
@@ -375,11 +375,11 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
                         className="border-4 border-white border-dashed shadow-2xl relative bg-transparent"
                         style={{
                           width: '30%',
-                          height: '120%',
+                          height: '140%',
                           minWidth: '400px',
-                          minHeight: '450px',
+                          minHeight: '500px',
                           maxWidth: '500px',
-                          maxHeight: '450px',
+                          maxHeight: '650px',
                           borderRadius: '12px',
                           borderStyle: 'dashed',
                           borderWidth: '4px'
