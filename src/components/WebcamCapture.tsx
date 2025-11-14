@@ -42,10 +42,16 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({
       setCapturedImage(null);
       setIsCameraStarting(true);
       setShowSourceSelector(false);
-      
+
       // Limpiar cualquier stream anterior
       if (streamRef.current) {
-        stopCamera();
+        streamRef.current.getTracks().forEach((track) => {
+          track.stop();
+        });
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
       }
 
       // Inicializar Face API si es necesario
@@ -350,10 +356,11 @@ const retakePhoto = useCallback(() => {
 
   // Efecto para iniciar cámara automáticamente
   useEffect(() => {
-    if (selectedSource === 'camera' && !showSourceSelector && !isStreaming && !isCameraStarting) {
+    if (selectedSource === 'camera' && !showSourceSelector && !isStreaming && !isCameraStarting && !capturedImage) {
+      console.log('Iniciando cámara automáticamente...');
       startCamera();
     }
-  }, [selectedSource, showSourceSelector, isStreaming, isCameraStarting, startCamera]);
+  }, [selectedSource, showSourceSelector, isStreaming, isCameraStarting, capturedImage, startCamera]);
 
   // Efecto para detección facial
   useEffect(() => {
@@ -406,8 +413,16 @@ const retakePhoto = useCallback(() => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <button
               onClick={() => {
+                console.log('Botón "Tomar foto" clickeado');
                 setSelectedSource('camera');
                 setShowSourceSelector(false);
+                setError(null);
+                setCapturedImage(null);
+                // Iniciar la cámara inmediatamente
+                setTimeout(() => {
+                  console.log('Ejecutando startCamera()...');
+                  startCamera();
+                }, 100);
               }}
               className={`p-4 border-2 rounded-lg flex flex-col items-center justify-center space-y-2 transition-colors ${
                 selectedSource === 'camera'
