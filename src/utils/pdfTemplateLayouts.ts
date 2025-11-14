@@ -38,7 +38,7 @@ export const pdfTemplateLayouts: Record<string, PDFTemplateLayout> = {
       { id: 'fecha_curso_3', name: 'Fecha curso 3', x: 292, y: 338, width: 80, height: 20, fontSize: 11, defaultValue: '  /  /    ' },
       { id: 'fecha_curso_4', name: 'Fecha curso 4', x: 292, y: 293, width: 80, height: 20, fontSize: 11, defaultValue: '  /  /    ' },
       { id: 'fecha_curso_5', name: 'Fecha curso 5', x: 292, y: 253, width: 80, height: 20, fontSize: 11, defaultValue: '  /  /    ' },
-      { id: 'nota_general', name: 'Nota general', x: 396, y: 330, width: 40, height: 20, fontSize: 11 },
+      { id: 'nota_general', name: 'Nota general', x: 396, y: 330, width: 40, height: 20, fontSize: 11, defaultValue: '18' },
       { id: 'hora_curso', name: 'Horas de curso',x: 148, y: 205.4, width: 40, height: 20, fontSize: 11 },
       { id: 'horas_curso_fecha_inicio', name: 'Fecha de inicio', x: 143, y: 190.4, width: 80, height: 20, fontSize: 11, defaultValue: '  /  /    ' },
       { id: 'horas_curso_fecha_termino', name: 'Fecha de término', x: 438, y: 190.4, width: 80, height: 20, fontSize: 11, defaultValue: '  /  /    ' }

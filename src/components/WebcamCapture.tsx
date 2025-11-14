@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { RotateCcw, Check, AlertCircle, Timer, Aperture } from 'lucide-react';
+import { RotateCcw, Check, AlertCircle, Timer, Aperture, Upload, X, Camera } from 'lucide-react';
 import { faceDetectionService, FaceDetectionResult } from '../utils/faceDetection';
 
 interface WebcamCaptureProps {
@@ -8,32 +8,47 @@ interface WebcamCaptureProps {
   isProcessing?: boolean;
 }
 
-const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture, isProcessing = false }) => {
+const WebcamCapture: React.FC<WebcamCaptureProps> = ({
+  onImageCapture,
+  onCapture,
+  isProcessing = false,
+}) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const autoCaptureTimerRef = useRef<NodeJS.Timeout | null>(null);
   const countdownTimerRef = useRef<NodeJS.Timeout | null>(null);
   const alignedStreakRef = useRef<number>(0);
   const misalignedStreakRef = useRef<number>(0);
-  
+  const capturePhotoRef = useRef<() => void>();
+
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isCameraStarting, setIsCameraStarting] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [faceDetection, setFaceDetection] = useState<FaceDetectionResult>({
     isFaceDetected: false,
-    isFaceAligned: false
+    isFaceAligned: false,
   });
   const [isFaceApiLoading, setIsFaceApiLoading] = useState(true);
   const [autoCaptureCountdown, setAutoCaptureCountdown] = useState<number | null>(null);
   const [isAutoCapturing, setIsAutoCapturing] = useState(false);
   const [isAutoMode, setIsAutoMode] = useState(false);
+  const [showSourceSelector, setShowSourceSelector] = useState(true);
+  const [selectedSource, setSelectedSource] = useState<'camera' | 'upload'>('camera');
 
   const startCamera = useCallback(async () => {
     try {
       setError(null);
+      setCapturedImage(null);
+      setIsCameraStarting(true);
+      setShowSourceSelector(false);
       
-      // Initialize Face API
+      // Limpiar cualquier stream anterior
+      if (streamRef.current) {
+        stopCamera();
+      }
+
+      // Inicializar Face API si es necesario
       if (isFaceApiLoading) {
         try {
           await faceDetectionService.initialize();
@@ -43,42 +58,82 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
           setIsFaceApiLoading(false);
         }
       }
-      
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: true
-      });
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        streamRef.current = stream;
-        // Wait for dimensions to be available and start playback
-        await new Promise<void>((resolve) => {
-          const el = videoRef.current!;
-          if (el.readyState >= 2 && el.videoWidth > 0 && el.videoHeight > 0) {
-            resolve();
-            return;
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { 
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: 'user' 
           }
-          const onMeta = () => {
-            el.removeEventListener('loadedmetadata', onMeta);
-            resolve();
-          };
-          el.addEventListener('loadedmetadata', onMeta, { once: true });
         });
-        try { await videoRef.current.play(); } catch (_) {}
-        setIsStreaming(true);
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          streamRef.current = stream;
+          
+          // Esperar a que el video esté listo
+          await new Promise<void>((resolve, reject) => {
+            const video = videoRef.current!;
+            
+            const onLoaded = () => {
+              cleanup();
+              resolve();
+            };
+
+            const onError = () => {
+              cleanup();
+              reject(new Error('Error al cargar el video'));
+            };
+
+            const cleanup = () => {
+              video.removeEventListener('loadeddata', onLoaded);
+              video.removeEventListener('error', onError);
+            };
+
+            if (video.readyState >= 2) {
+              resolve();
+              return;
+            }
+
+            video.addEventListener('loadeddata', onLoaded, { once: true });
+            video.addEventListener('error', onError, { once: true });
+
+            // Timeout de seguridad
+            setTimeout(() => {
+              cleanup();
+              reject(new Error('Tiempo de espera agotado al cargar la cámara'));
+            }, 5000);
+          });
+
+          setIsStreaming(true);
+          setIsCameraStarting(false);
+        }
+      } catch (err) {
+        console.error('Error al acceder a la cámara:', err);
+        setError('No se pudo acceder a la cámara. Por favor verifica los permisos.');
+        setShowSourceSelector(true);
+        setIsCameraStarting(false);
       }
     } catch (error) {
       console.error('Error accessing camera:', error);
-      setError('No se pudo acceder a la cámara. Por favor verifica los permisos.');
+      setError('No se pudo acceder a la cámara. Verifica los permisos e inténtalo de nuevo.');
+      setIsCameraStarting(false);
     }
   }, [isFaceApiLoading]);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach((track) => {
+        track.stop();
+      });
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setIsStreaming(false);
+    setIsCameraStarting(false);
   }, []);
 
   const cancelAutoCapture = useCallback(() => {
@@ -92,6 +147,80 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
     misalignedStreakRef.current = 0;
   }, []);
 
+  const capturePhoto = useCallback(() => {
+    if (!videoRef.current || !canvasRef.current || !isStreaming) {
+      console.error('No se puede capturar: video o canvas no están listos');
+      return;
+    }
+
+    cancelAutoCapture();
+
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const context = canvas.getContext('2d');
+
+    if (!context) {
+      console.error('No se pudo obtener el contexto 2D del canvas');
+      return;
+    }
+
+    // Obtener dimensiones del video
+    const videoWidth = video.videoWidth;
+    const videoHeight = video.videoHeight;
+    
+    if (!videoWidth || !videoHeight) {
+      console.error('Dimensiones de video no disponibles');
+      return;
+    }
+
+    // Obtener dimensiones del elemento video en pantalla
+    const videoRect = video.getBoundingClientRect();
+    
+    // Marco visible en pantalla
+    const frameDisplayWidth = Math.min(600, Math.max(400, videoRect.width * 0.50));
+    const frameDisplayHeight = Math.min(600, videoRect.height * 0.90);
+    const verticalOffsetDisplay = videoRect.height * 0.16;
+
+    // Mapeo a coordenadas de video
+    const scaleX = videoWidth / videoRect.width;
+    const scaleY = videoHeight / videoRect.height;
+    
+    const cropWidth = Math.round(frameDisplayWidth * scaleX);
+    const cropHeight = Math.round(frameDisplayHeight * scaleY);
+    const cropX = Math.round((videoWidth - cropWidth) / 2);
+    const cropY = Math.round((videoHeight - cropHeight) / 2 - verticalOffsetDisplay * scaleY);
+
+    const safeCropX = Math.max(0, Math.min(cropX, videoWidth - cropWidth));
+    const safeCropY = Math.max(0, Math.min(cropY, videoHeight - cropHeight));
+    const safeCropWidth = Math.max(1, Math.min(cropWidth, videoWidth));
+    const safeCropHeight = Math.max(1, Math.min(cropHeight, videoHeight));
+
+    // Configurar canvas y dibujar imagen
+    canvas.width = safeCropWidth;
+    canvas.height = safeCropHeight;
+
+    context.drawImage(
+      video,
+      safeCropX,
+      safeCropY,
+      safeCropWidth,
+      safeCropHeight,
+      0,
+      0,
+      safeCropWidth,
+      safeCropHeight
+    );
+
+    const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    setCapturedImage(imageDataUrl);
+    stopCamera();
+  }, [isStreaming, stopCamera, cancelAutoCapture]);
+
+  // Actualizar la referencia de capturePhoto
+  useEffect(() => {
+    capturePhotoRef.current = capturePhoto;
+  }, [capturePhoto]);
+
   const detectFace = useCallback(async () => {
     if (!videoRef.current || !isStreaming || isFaceApiLoading) return;
 
@@ -99,39 +228,37 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
       const videoElement = videoRef.current;
       const vw = videoElement.videoWidth;
       const vh = videoElement.videoHeight;
-      if (!vw || !vh) {
-        return;
-      }
-      const videoRect = videoElement.getBoundingClientRect();
       
-      // Calculate frame box coordinates (the white dashed frame)
+      if (!vw || !vh) return;
+
+      const videoRect = videoElement.getBoundingClientRect();
+
+      // Calcular marco de visualización
       const frameDisplayWidth = Math.min(600, Math.max(400, videoRect.width * 0.50));
       const frameDisplayHeight = Math.min(600, videoRect.height * 0.90);
-      const verticalOffset = videoRect.height * 0.16; // slightly less upwards
+      const verticalOffset = videoRect.height * 0.16;
+      
       const frameDisplayBox = {
         x: (videoRect.width - frameDisplayWidth) / 2,
         y: (videoRect.height - frameDisplayHeight) / 2 - verticalOffset,
         width: frameDisplayWidth,
-        height: frameDisplayHeight
+        height: frameDisplayHeight,
       };
 
-      // Map display frame to VIDEO coordinate space
+      // Mapear a coordenadas de video
       const scaleX = vw / videoRect.width;
       const scaleY = vh / videoRect.height;
       const frameBox = {
         x: Math.max(0, Math.round(frameDisplayBox.x * scaleX)),
         y: Math.max(0, Math.round(frameDisplayBox.y * scaleY)),
         width: Math.min(vw, Math.round(frameDisplayBox.width * scaleX)),
-        height: Math.min(vh, Math.round(frameDisplayBox.height * scaleY))
+        height: Math.min(vh, Math.round(frameDisplayBox.height * scaleY)),
       };
 
       const result = await faceDetectionService.detectFace(videoElement, frameBox);
       setFaceDetection(result);
-      
-      // Debug logging
-      console.log('Face detection result:', result);
-      
-      // Stability logic to avoid flicker resets
+
+      // Lógica de estabilidad
       if (result.isFaceAligned) {
         alignedStreakRef.current = Math.min(alignedStreakRef.current + 1, 10);
         misalignedStreakRef.current = 0;
@@ -140,19 +267,23 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
         alignedStreakRef.current = 0;
       }
 
-      const alignedStable = alignedStreakRef.current >= 3; // ~0.9s with 300ms interval
+      const alignedStable = alignedStreakRef.current >= 3;
       const misalignedStable = misalignedStreakRef.current >= 3;
 
-      // Start countdown only after stability and only if auto mode is enabled
+      // Iniciar cuenta regresiva solo si está alineado establemente y en modo automático
       if (alignedStable && !isAutoCapturing && !capturedImage && isAutoMode) {
         if (autoCaptureCountdown === null) {
           setAutoCaptureCountdown(2);
           setIsAutoCapturing(true);
 
           countdownTimerRef.current = setInterval(() => {
-            setAutoCaptureCountdown(prev => {
+            setAutoCaptureCountdown((prev) => {
               if (prev === null || prev <= 1) {
-                clearInterval(countdownTimerRef.current!);
+                if (countdownTimerRef.current) {
+                  clearInterval(countdownTimerRef.current);
+                  countdownTimerRef.current = null;
+                }
+                // Usar la referencia en lugar de la función directamente
                 if (capturePhotoRef.current) {
                   capturePhotoRef.current();
                 }
@@ -164,289 +295,361 @@ const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onImageCapture, onCapture
         }
       }
 
-      // Only cancel countdown if misalignment is stable for a short period
+      // Cancelar cuenta regresiva si hay desalineación estable
       if (isAutoCapturing && misalignedStable) {
-        if (countdownTimerRef.current) {
-          clearInterval(countdownTimerRef.current);
-          countdownTimerRef.current = null;
-        }
-        setAutoCaptureCountdown(null);
-        setIsAutoCapturing(false);
+        cancelAutoCapture();
       }
     } catch (error) {
       console.error('Error detecting face:', error);
     }
-  }, [isStreaming, isFaceApiLoading, isAutoCapturing, capturedImage, autoCaptureCountdown, isAutoMode]);
+  }, [isStreaming, isFaceApiLoading, isAutoCapturing, capturedImage, autoCaptureCountdown, isAutoMode, cancelAutoCapture]);
 
-  const capturePhoto = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current) return;
-
-    // Cancel any ongoing auto-capture
-    cancelAutoCapture();
-
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    const context = canvas.getContext('2d');
-
-    if (!context) return;
-
-    const tryCapture = async (attempt: number): Promise<boolean> => {
-      // Pequeña espera a frame real
-      await new Promise<void>(r => requestAnimationFrame(() => r()))
-      
-      // Obtener las dimensiones del video
-      const videoWidth = video.videoWidth;
-      const videoHeight = video.videoHeight;
-      if (!videoWidth || !videoHeight) {
-        return false;
-      }
-      
-      // Obtener las dimensiones del elemento video en pantalla
-      const videoElement = videoRef.current!;
-      const videoRect = videoElement.getBoundingClientRect();
-      const videoDisplayWidth = videoRect.width;
-      const videoDisplayHeight = videoRect.height;
-      
-      // Marco visible en pantalla
-      const frameDisplayWidth = Math.min(600, Math.max(400, videoDisplayWidth * 0.50));
-      const frameDisplayHeight = Math.min(600, videoDisplayHeight * 0.90);
-      const verticalOffsetDisplay = videoDisplayHeight * 0.16;
-      
-      // Mapeo a coordenadas de video
-      const scaleX = videoWidth / videoDisplayWidth;
-      const scaleY = videoHeight / videoDisplayHeight;
-      const cropWidth = Math.round(frameDisplayWidth * scaleX);
-      const cropHeight = Math.round(frameDisplayHeight * scaleY);
-      const cropX = Math.round((videoWidth - cropWidth) / 2);
-      const cropY = Math.round((videoHeight - cropHeight) / 2 - verticalOffsetDisplay * scaleY);
-
-      const safeCropX = Math.max(0, Math.min(cropX, videoWidth - cropWidth));
-      const safeCropY = Math.max(0, Math.min(cropY, videoHeight - cropHeight));
-      const safeCropWidth = Math.max(1, Math.min(cropWidth, videoWidth));
-      const safeCropHeight = Math.max(1, Math.min(cropHeight, videoHeight));
-
-      canvas.width = safeCropWidth | 0;
-      canvas.height = safeCropHeight | 0;
-
-      context.drawImage(
-        video, 
-        safeCropX, safeCropY, safeCropWidth, safeCropHeight,
-        0, 0, safeCropWidth, safeCropHeight
-      );
-
-      // Verificar si quedó negro
-      const pixel = context.getImageData(Math.floor(safeCropWidth/2), Math.floor(safeCropHeight/2), 1, 1).data;
-      const avg = (pixel[0] + pixel[1] + pixel[2]) / 3;
-      const looksBlack = avg < 2; // casi negro
-      if (looksBlack && attempt < 3) {
-        await new Promise(res => setTimeout(res, 80));
-        return tryCapture(attempt + 1);
-      }
-      return !looksBlack;
-    };
-
-    (async () => {
-      const ok = await tryCapture(1);
-      const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-      setCapturedImage(imageDataUrl);
-      if (ok) {
-        stopCamera();
-      } else {
-        console.warn('La captura parece negra tras reintentos');
-      }
-    })();
-  }, [stopCamera, cancelAutoCapture]);
-
-  const capturePhotoRef = useRef<() => void>();
-  capturePhotoRef.current = capturePhoto;
-
-  const retakePhoto = useCallback(() => {
-    setCapturedImage(null);
-    cancelAutoCapture();
-    startCamera();
-  }, [startCamera, cancelAutoCapture]);
+const retakePhoto = useCallback(() => {
+  // Reset all camera-related states
+  setCapturedImage(null);
+  setError(null);
+  setShowSourceSelector(false);
+  setFaceDetection({
+    isFaceDetected: false,
+    isFaceAligned: false
+  });
+  
+  // Reset camera state
+  stopCamera();
+  
+  // Small delay to ensure camera is fully stopped before restarting
+  setTimeout(() => {
+    startCamera().catch(err => {
+      console.error('Error al reiniciar la cámara:', err);
+      setError('No se pudo reiniciar la cámara');
+      setShowSourceSelector(true);
+    });
+  }, 300);
+}, [startCamera, stopCamera]);
 
   const confirmPhoto = useCallback(() => {
     if (capturedImage) {
-      if (onImageCapture) {
-        onImageCapture(capturedImage);
-      }
-      if (onCapture) {
-        onCapture(capturedImage);
-      }
+      onImageCapture?.(capturedImage);
+      onCapture?.(capturedImage);
     }
   }, [capturedImage, onImageCapture, onCapture]);
 
-  useEffect(() => {
-    startCamera();
-    return () => {
-      stopCamera();
-    };
-  }, [startCamera, stopCamera]);
+  const handleSourceChange = useCallback(() => {
+    stopCamera();
+    setShowSourceSelector(true);
+    setError(null);
+    setCapturedImage(null);
+  }, [stopCamera]);
 
-  // Face detection effect
+  const backToSourceSelection = useCallback(() => {
+    stopCamera();
+    setShowSourceSelector(true);
+    setCapturedImage(null);
+    setError(null);
+  }, [stopCamera]);
+
+  // Efecto para iniciar cámara automáticamente
+  useEffect(() => {
+    if (selectedSource === 'camera' && !showSourceSelector && !isStreaming && !isCameraStarting) {
+      startCamera();
+    }
+  }, [selectedSource, showSourceSelector, isStreaming, isCameraStarting, startCamera]);
+
+  // Efecto para detección facial
   useEffect(() => {
     if (!isStreaming || isFaceApiLoading) return;
-    faceDetectionService.setDetectionThrottle(300);
+    
     const interval = setInterval(detectFace, 300);
     return () => clearInterval(interval);
   }, [isStreaming, isFaceApiLoading, detectFace]);
 
-  // Cleanup timers on unmount
+  // Efecto de limpieza
   useEffect(() => {
     return () => {
-      if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
-      if (autoCaptureTimerRef.current) clearTimeout(autoCaptureTimerRef.current);
+      stopCamera();
+      if (countdownTimerRef.current) {
+        clearInterval(countdownTimerRef.current);
+      }
     };
-  }, []);
+  }, [stopCamera]);
+
+  // Manejar subida de imagen
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setError('Por favor, selecciona un archivo de imagen válido');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const imageData = event.target?.result as string;
+      if (imageData) {
+        setCapturedImage(imageData);
+        onImageCapture?.(imageData);
+        onCapture?.(imageData);
+      }
+    };
+    reader.onerror = () => {
+      setError('Error al leer el archivo de imagen');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  if (showSourceSelector) {
+    return (
+      <div className="space-y-4 w-full">
+        <div className="space-y-2">
+          <h4 className="font-medium text-gray-700 text-center mb-4">Seleccione una opción:</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <button
+              onClick={() => {
+                setSelectedSource('camera');
+                setShowSourceSelector(false);
+              }}
+              className={`p-4 border-2 rounded-lg flex flex-col items-center justify-center space-y-2 transition-colors ${
+                selectedSource === 'camera'
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              <Camera className="w-8 h-8 text-blue-600" />
+              <span>Tomar foto</span>
+            </button>
+            <label
+              className={`p-4 border-2 rounded-lg flex flex-col items-center justify-center space-y-2 cursor-pointer transition-colors ${
+                selectedSource === 'upload'
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              <Upload className="w-8 h-8 text-blue-600" />
+              <span>Subir imagen</span>
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleImageUpload}
+              />
+            </label>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-6 text-center">
+        <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+          <AlertCircle className="w-8 h-8 text-red-500" />
+        </div>
+        <p className="text-gray-700 mb-4">{error}</p>
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={startCamera}
+            className="w-full px-4 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
+          >
+            Reintentar cámara
+          </button>
+          <button
+            onClick={backToSourceSelection}
+            className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+          >
+            Cambiar a otra opción
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isCameraStarting) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-6 text-center">
+        <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        </div>
+        <p className="text-gray-700 mb-4">Iniciando cámara...</p>
+      </div>
+    );
+  }
+
+  if (!isStreaming && !capturedImage && selectedSource === 'camera') {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-6 text-center">
+        <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Aperture className="w-8 h-8 text-blue-500" />
+        </div>
+        <p className="text-gray-700 mb-4">Preparando cámara...</p>
+        <button
+          onClick={startCamera}
+          className="w-full px-4 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
+        >
+          Iniciar Cámara
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full flex flex-col items-center">
-      {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 max-w-md">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-          <span className="text-red-700 text-sm flex-1">{error}</span>
-          <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 text-lg font-bold">×</button>
-        </div>
-      )}
-
-      {capturedImage && null}
       <div className="w-full max-w-2xl">
-        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl overflow-hidden relative shadow-2xl border-4 border-gray-700 h-[720px]">
+        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl overflow-hidden relative shadow-2xl border-4 border-gray-700">
           {!capturedImage ? (
             <>
-              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-contain" />
-
-              {(!isStreaming || isFaceApiLoading) && !error && (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-95">
-                  <div className="text-center text-white">
-                    <div className="w-12 h-12 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-lg font-medium">{isFaceApiLoading ? 'Cargando detección facial...' : 'Iniciando cámara...'}</p>
-                    <p className="text-sm text-gray-300 mt-2">{isFaceApiLoading ? 'Preparando modelos de IA' : 'Por favor, permite el acceso a la cámara'}</p>
-                  </div>
-                </div>
-              )}
-
-              {error && (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-900 bg-opacity-95">
-                  <div className="text-center text-white p-6">
-                    <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-400" />
-                    <h3 className="text-xl font-semibold mb-2">Error de Cámara</h3>
-                    <p className="text-gray-300 mb-6">No se pudo acceder a la cámara</p>
-                    <button onClick={startCamera} className="bg-blue-600 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-lg">Intentar nuevamente</button>
-                  </div>
-                </div>
-              )}
-
               {isStreaming && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-                  <div className="relative w-full h-full flex items-center justify-center">
-                    <div className="border-2 border-white border-dashed shadow-2xl relative bg-transparent" style={{ width: '50%', height: '80%', minWidth: '520px', minHeight: '300px', maxWidth: '600px', maxHeight: '560px', borderRadius: '8px', borderStyle: 'dashed', borderWidth: '1px', transform: 'translateY(-14%)' }}>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-80 h-120 opacity-35">
-                          <svg viewBox="0 0 96 128" fill="white" className="w-full h-full drop-shadow-2xl">
-                            <path d=" M48,8 C66,8 80,30 80,54 C80,76 66,98 56,106 C52,110 44,110 40,106 C30,98 16,76 16,54 C16,30 30,8 48,8 Z " stroke={faceDetection.isFaceAligned ? '#06f712ff' : faceDetection.isFaceDetected ? '#ffae00ff' : '#FFFFFF'} strokeWidth="1" fill="none" strokeDasharray="6 4" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </div>
+                <div className="relative w-full">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-auto"
+                    style={{ transform: 'scaleX(-1)' }}
+                  />
+                  
+                  {/* Marco de guía */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div 
+                      className="border-2 border-dashed border-white rounded-lg opacity-80"
+                      style={{
+                        width: '50%',
+                        height: '70%',
+                        marginTop: '-8%'
+                      }}
+                    ></div>
+                  </div>
+
+                  {/* Indicador de estado */}
+                  <div className="absolute top-4 right-4 bg-black bg-opacity-70 text-white px-3 py-2 rounded-lg text-sm">
+                    {isAutoCapturing && autoCaptureCountdown !== null ? (
+                      <div className="flex items-center gap-2 text-orange-400">
+                        <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse"></div>
+                        Capturando en {autoCaptureCountdown}s
                       </div>
-
-                      {isStreaming && !isFaceApiLoading && (
-                        <div className="absolute top-4 right-4 bg-black bg-opacity-70 text-white px-3 py-2 rounded-lg text-sm">
-                          {isAutoCapturing && autoCaptureCountdown !== null ? (
-                            <div className="flex items-center gap-2 text-orange-400">
-                              <div className="w-2 h-2 bg-orange-400 rounded-full animate-pulse"></div>
-                              Capturando en {autoCaptureCountdown}s
-                            </div>
-                          ) : faceDetection.isFaceAligned ? (
-                            <div className="flex items-center gap-2 text-green-400">
-                              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                              Rostro alineado
-                            </div>
-                          ) : faceDetection.isFaceDetected ? (
-                            <div className="flex items-center gap-2 text-yellow-400">
-                              <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
-                              Rostro detectado
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 text-gray-400">
-                              <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
-                              Buscando rostro...
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {isAutoCapturing && autoCaptureCountdown !== null && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
-                  <div className="bg-black bg-opacity-80 text-white rounded-full w-24 h-24 flex items-center justify-center">
-                    <div className="text-center">
-                      <div className="text-3xl font-bold text-orange-400 animate-pulse">{autoCaptureCountdown}</div>
-                      <div className="text-xs text-gray-300 mt-1">segundos</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {isStreaming && (
-                <div className="absolute bottom-48 right-6 z-50">
-                  <button
-                    onClick={isAutoCapturing ? cancelAutoCapture : capturePhoto}
-                    disabled={!isStreaming || (isAutoMode && !faceDetection.isFaceAligned && !isAutoCapturing)}
-                    className={`group relative w-16 h-16 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 transform hover:scale-105 active:scale-95 ${(!isAutoMode || faceDetection.isFaceAligned) || isAutoCapturing ? (isAutoCapturing ? 'bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white' : 'bg-gradient-to-br from-orange-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white') : 'bg-gray-500 text-gray-300 cursor-not-allowed'}`}
-                    title={isAutoCapturing ? 'Cancelar captura automática' : isAutoMode ? (faceDetection.isFaceAligned ? 'Capturar foto manualmente' : 'Alinea tu rostro dentro del marco para capturar') : 'Capturar foto (modo manual)'}
-                  >
-                    <div className="absolute inset-0 bg-white rounded-full opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
-                    {isAutoCapturing ? (
-                      <div className="w-8 h-8 relative z-10 flex items-center justify-center">
-                        <div className="w-6 h-6 border-2 border-white rounded-full"></div>
-                        <div className="absolute w-2 h-2 bg-white rounded-full"></div>
+                    ) : faceDetection.isFaceAligned ? (
+                      <div className="flex items-center gap-2 text-green-400">
+                        <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                        Rostro alineado
+                      </div>
+                    ) : faceDetection.isFaceDetected ? (
+                      <div className="flex items-center gap-2 text-yellow-400">
+                        <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
+                        Rostro detectado
                       </div>
                     ) : (
-                      <Aperture className="w-8 h-8 relative z-10" />
+                      <div className="flex items-center gap-2 text-gray-400">
+                        <div className="w-2 h-2 bg-gray-400 rounded-full"></div>
+                        Buscando rostro...
+                      </div>
                     )}
-                  </button>
-                </div>
-              )}
+                  </div>
 
-              {isStreaming && (
-                <div className="absolute bottom-48 left-6 z-50">
-                  <button
-                    onClick={() => {
-                      setIsAutoMode((prev) => {
-                        const next = !prev;
-                        if (!next) cancelAutoCapture();
-                        return next;
-                      });
-                    }}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium shadow-2xl transition-colors inline-flex items-center gap-2 ${isAutoMode ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-700 hover:bg-gray-800 text-white'}`}
-                    title={isAutoMode ? 'Desactivar modo automático' : 'Activar modo automático'}
-                  >
-                    <Timer className="w-4 h-4" />
-                    {isAutoMode ? 'Automático: ON' : 'Automático: OFF'}
-                  </button>
+                  {/* Botón de cambiar fuente */}
+                  <div className="absolute top-4 left-4">
+                    <button
+                      onClick={handleSourceChange}
+                      className="p-2 bg-white rounded-full shadow-md text-gray-700 hover:bg-gray-100"
+                      title="Cambiar fuente"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {/* Contador de captura automática */}
+                  {isAutoCapturing && autoCaptureCountdown !== null && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="bg-black bg-opacity-80 text-white rounded-full w-24 h-24 flex items-center justify-center">
+                        <div className="text-center">
+                          <div className="text-3xl font-bold text-orange-400 animate-pulse">
+                            {autoCaptureCountdown}
+                          </div>
+                          <div className="text-xs text-gray-300 mt-1">segundos</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Botones de control */}
+                  <div className="absolute bottom-6 left-6 right-6 flex justify-between items-center">
+                    <button
+                      onClick={() => {
+                        setIsAutoMode((prev) => {
+                          if (prev) cancelAutoCapture();
+                          return !prev;
+                        });
+                      }}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium shadow-2xl transition-colors inline-flex items-center gap-2 ${
+                        isAutoMode 
+                          ? 'bg-green-600 hover:bg-green-700 text-white' 
+                          : 'bg-gray-700 hover:bg-gray-800 text-white'
+                      }`}
+                    >
+                      <Timer className="w-4 h-4" />
+                      {isAutoMode ? 'Automático: ON' : 'Automático: OFF'}
+                    </button>
+
+                    <button
+                      onClick={isAutoCapturing ? cancelAutoCapture : capturePhoto}
+                      disabled={!isStreaming || (isAutoMode && !faceDetection.isFaceAligned && !isAutoCapturing)}
+                      className={`group relative w-16 h-16 rounded-full flex items-center justify-center shadow-2xl transition-all duration-300 transform hover:scale-105 active:scale-95 ${
+                        (!isAutoMode || faceDetection.isFaceAligned) || isAutoCapturing 
+                          ? (isAutoCapturing 
+                              ? 'bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white' 
+                              : 'bg-gradient-to-br from-orange-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white'
+                            )
+                          : 'bg-gray-500 text-gray-300 cursor-not-allowed'
+                      }`}
+                    >
+                      <div className="absolute inset-0 bg-white rounded-full opacity-0 group-hover:opacity-20 transition-opacity duration-300"></div>
+                      {isAutoCapturing ? (
+                        <div className="w-8 h-8 relative z-10 flex items-center justify-center">
+                          <div className="w-6 h-6 border-2 border-white rounded-full"></div>
+                          <div className="absolute w-2 h-2 bg-white rounded-full"></div>
+                        </div>
+                      ) : (
+                        <Aperture className="w-8 h-8 relative z-10" />
+                      )}
+                    </button>
+                  </div>
                 </div>
               )}
             </>
           ) : (
             <div className="relative">
-              <img src={capturedImage as string} alt="Foto capturada" className="w-full h-auto object-cover block" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-60 pointer-events-none z-10"></div>
-              <div className="absolute top-4 left-4 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2 z-20">
+              <img 
+                src={capturedImage} 
+                alt="Foto capturada" 
+                className="w-full h-auto object-cover block" 
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-60 pointer-events-none"></div>
+              <div className="absolute top-4 left-4 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2">
                 <Check className="w-4 h-4" />
                 Foto capturada
               </div>
-              <div className="absolute bottom-4 right-4 flex gap-3 z-30">
-                <button onClick={retakePhoto} disabled={isProcessing} className="inline-flex items-center gap-2 bg-gray-800/90 hover:bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:bg-gray-600 shadow-lg">
-                  <RotateCcw className="w-4 h-4" />
-                  Tomar otra
+              <div className="flex flex-col sm:flex-row justify-center gap-4 p-4 bg-white border-t border-gray-200">
+                <button
+                  onClick={backToSourceSelection}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                >
+                  <X className="w-4 h-4" />
+                  Cambiar fuente
                 </button>
-                <button onClick={confirmPhoto} disabled={isProcessing} className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:bg-gray-600 shadow-lg">
-                  <Check className="w-4 h-4" />
-                  Usar foto
+                <button
+                  onClick={retakePhoto}
+                  className="px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors flex items-center justify-center gap-2 text-base font-medium"
+                >
+                  <RotateCcw className="w-5 h-5" />
+                  Volver a tomar
+                </button>
+                <button
+                  onClick={confirmPhoto}
+                  className="px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors flex items-center justify-center gap-2 text-base font-medium"
+                >
+                  <Check className="w-5 h-5" />
+                  Usar esta foto
                 </button>
               </div>
             </div>
